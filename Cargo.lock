@@ -8965,8 +8965,14 @@ name = "xtask"
 version = "0.0.0"
 dependencies = [
  "anyhow",
+ "base64 0.23.1",
  "clap",
+ "ed25519-dalek",
+ "semver",
  "serde_json",
+ "sha2 0.11.1",
+ "vaio-core",
+ "vaio-platform",
 ]
 
 [[package]]
