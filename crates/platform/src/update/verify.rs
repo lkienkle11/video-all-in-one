@@ -1,33 +1,27 @@
 //! Artifact verification: the SHA-256 digest must match the manifest, and an Ed25519
 //! signature over that digest must verify with the compiled-in public key.
 
-use std::fmt;
-
 use base64::Engine;
 use ed25519_dalek::{Signature, VerifyingKey};
 
-/// Why an update artifact must not be installed.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum VerifyError {
-    /// The downloaded bytes do not hash to the digest the manifest promised.
-    DigestMismatch,
-    /// The signature does not verify over the digest with this public key.
-    BadSignature,
-    /// The signature or the public key is not well formed.
-    Malformed,
-}
+use vaio_core::ports::ArtifactVerifier;
+pub use vaio_core::update::VerifyError;
 
-impl fmt::Display for VerifyError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::DigestMismatch => write!(f, "the update file does not match its checksum"),
-            Self::BadSignature => write!(f, "the update file signature is not valid"),
-            Self::Malformed => write!(f, "the update signature or key is malformed"),
-        }
+/// The production verifier: the digest check and the Ed25519 signature check.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Ed25519Verifier;
+
+impl ArtifactVerifier for Ed25519Verifier {
+    fn verify(
+        &self,
+        digest: [u8; 32],
+        expected_sha256_hex: &str,
+        signature_b64: &str,
+        public_key: &[u8; 32],
+    ) -> Result<(), VerifyError> {
+        verify_artifact(digest, expected_sha256_hex, signature_b64, public_key)
     }
 }
-
-impl std::error::Error for VerifyError {}
 
 /// Checks the digest first, then the signature over the digest. Nothing is trusted
 /// until both pass.
@@ -157,6 +151,22 @@ mod tests {
         let encoded = base64::engine::general_purpose::STANDARD.encode(signature);
         let result = verify_artifact(d, &hex(&d), &encoded, &public_key(&SECRET));
         assert_eq!(result, Err(VerifyError::BadSignature));
+    }
+
+    #[test]
+    fn ed25519_verifier_accepts_valid_and_rejects_tampered() {
+        let verifier = Ed25519Verifier;
+        let d = digest(ARTIFACT);
+        let valid = verifier.verify(d, &hex(&d), &sign_b64(&SECRET, &d), &public_key(&SECRET));
+        assert_eq!(valid, Ok(()));
+        let tampered = digest(b"video-all-in-one 0.1.1 artifact, altered");
+        let rejected = verifier.verify(
+            tampered,
+            &hex(&tampered),
+            &sign_b64(&SECRET, &d),
+            &public_key(&SECRET),
+        );
+        assert_eq!(rejected, Err(VerifyError::BadSignature));
     }
 
     #[test]
