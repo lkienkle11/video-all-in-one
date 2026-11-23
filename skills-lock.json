@@ -64,6 +64,20 @@
       "skillPath": "skills/gpui-kit-design-guides/SKILL.md",
       "computedHash": "2c1e75bcbaee18aea9908aed7799c5c6eb00b37127b7cec2d9f99bbffe3df3ea"
     },
+    "observability-and-instrumentation": {
+      "source": "addyosmani/agent-skills",
+      "commit": "8c99fa36d90068c82d547f7c12a9d67a3e95f4ee",
+      "sourceType": "github",
+      "skillPath": "skills/observability-and-instrumentation/SKILL.md",
+      "computedHash": "71661b8e1558d7eed8cdf93bfb731da1c3afed9b895b049ecf92792af0d8a364"
+    },
+    "proptest-praxis": {
+      "source": "inanna-malick/agent-skills",
+      "commit": "fa2ce23d66a155833e227860699da18044341b3e",
+      "sourceType": "github",
+      "skillPath": "skills/proptest-praxis/SKILL.md",
+      "computedHash": "cacea5499291588dc8f9af1ad389d4c0af2198c631acc17f45e1de434579ea24"
+    },
     "receiving-code-review": {
       "source": "obra/superpowers",
       "commit": "22f0b463e7a5e579904dd6211a520321035526f7",
