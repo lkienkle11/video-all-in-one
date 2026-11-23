@@ -2,3 +2,6 @@
 name = "vaio-platform"
 version.workspace = true
 edition.workspace = true
+
+[features]
+production = []

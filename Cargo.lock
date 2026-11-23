@@ -7633,6 +7633,7 @@ name = "vaio-desktop"
 version = "0.0.0"
 dependencies = [
  "gpui-kit",
+ "vaio-platform",
 ]
 
 [[package]]
