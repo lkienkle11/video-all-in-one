@@ -84,6 +84,16 @@ impl Job {
         }
     }
 
+    /// Restores a job read from storage. No validation: the caller vouches for the values.
+    pub fn from_parts(id: JobId, kind: JobKind, state: JobState, error: Option<String>) -> Job {
+        Job {
+            id,
+            kind,
+            state,
+            error,
+        }
+    }
+
     /// The queue identifier of this job.
     pub fn id(&self) -> JobId {
         self.id
