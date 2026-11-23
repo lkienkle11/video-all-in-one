@@ -7624,6 +7624,9 @@ dependencies = [
 [[package]]
 name = "vaio-core"
 version = "0.0.0"
+dependencies = [
+ "proptest",
+]
 
 [[package]]
 name = "vaio-desktop"

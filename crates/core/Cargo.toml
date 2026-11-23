@@ -2,3 +2,6 @@
 name = "vaio-core"
 version.workspace = true
 edition.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
