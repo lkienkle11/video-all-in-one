@@ -8,10 +8,10 @@ pub fn rust_share(root: &Path) -> Result<f64> {
             let entry = entry?;
             let file_type = entry.file_type()?;
             if file_type.is_dir() {
-                if !matches!(
-                    entry.file_name().to_str(),
-                    Some("target" | "docs" | ".claude" | ".agents" | ".codegraph" | "node_modules")
-                ) {
+                let name = entry.file_name();
+                if !name.to_string_lossy().starts_with('.')
+                    && !matches!(name.to_str(), Some("target" | "docs" | "node_modules"))
+                {
                     count(&entry.path(), rust, total)?;
                 }
             } else if file_type.is_file() {
@@ -33,10 +33,10 @@ pub fn rust_share(root: &Path) -> Result<f64> {
                             | "rb"
                     )
                 ) {
-                    let lines = fs::read_to_string(&path)
-                        .with_context(|| format!("reading {}", path.display()))?
-                        .lines()
-                        .count();
+                    let bytes =
+                        fs::read(&path).with_context(|| format!("reading {}", path.display()))?;
+                    let lines = bytes.iter().filter(|&&byte| byte == b'\n').count()
+                        + usize::from(!bytes.is_empty() && bytes.last() != Some(&b'\n'));
                     *total += lines;
                     if extension == Some("rs") {
                         *rust += lines;
@@ -57,6 +57,9 @@ pub fn rust_share(root: &Path) -> Result<f64> {
 }
 
 pub fn check_minimum(share: f64, minimum: f64) -> Result<()> {
+    if !minimum.is_finite() || !(0.0..=100.0).contains(&minimum) {
+        bail!("minimum must be a finite number between 0 and 100");
+    }
     if share < minimum {
         bail!("Rust share {share:.1}% is below {minimum:.1}%");
     }
@@ -72,14 +75,58 @@ mod tests {
 
     static NEXT: AtomicUsize = AtomicUsize::new(0);
 
-    fn fixture() -> PathBuf {
+    struct Fixture(PathBuf);
+
+    impl std::ops::Deref for Fixture {
+        type Target = std::path::Path;
+
+        fn deref(&self) -> &Self::Target {
+            &self.0
+        }
+    }
+
+    impl Drop for Fixture {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn fixture() -> Fixture {
         let path = std::env::temp_dir().join(format!(
             "vaio-lang-share-{}-{}",
             std::process::id(),
             NEXT.fetch_add(1, Ordering::Relaxed)
         ));
         fs::create_dir_all(&path).unwrap();
-        path
+        Fixture(path)
+    }
+
+    #[test]
+    fn skips_every_directory_whose_name_starts_with_a_dot() {
+        let root = fixture();
+        fs::write(root.join("code.rs"), "one\n").unwrap();
+        for name in [".hidden", ".git"] {
+            fs::create_dir(root.join(name)).unwrap();
+            fs::write(root.join(name).join("code.sh"), "one\n").unwrap();
+        }
+        assert_eq!(rust_share(&root).unwrap(), 100.0);
+    }
+
+    #[test]
+    fn non_utf8_source_file_is_counted_by_newlines_and_does_not_abort() {
+        let root = fixture();
+        fs::write(root.join("bad.rs"), [0xff, 0xfe, b'\n', b'x', b'\n']).unwrap();
+        fs::write(root.join("ok.sh"), "one\ntwo\n").unwrap();
+        assert_eq!(rust_share(&root).unwrap(), 50.0);
+    }
+
+    #[test]
+    fn minimum_must_be_a_finite_number_between_0_and_100() {
+        for minimum in [f64::NAN, -1.0, 101.0] {
+            let error = check_minimum(80.0, minimum).unwrap_err().to_string();
+            assert!(error.contains("0") && error.contains("100"), "{error}");
+        }
+        assert!(check_minimum(80.0, 80.0).is_ok());
     }
 
     #[test]
