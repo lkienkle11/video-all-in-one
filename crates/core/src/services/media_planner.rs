@@ -42,9 +42,13 @@ pub fn plan_export(
             .collect(),
         ExportMode::Merged => vec![request.stem.to_string()],
     };
+    let piece_count = match request.export {
+        ExportMode::Separate => 0,
+        ExportMode::Merged => request.segments.len(),
+    };
     let names: Vec<String> = bases
         .iter()
-        .map(|base| free_name(out_dir, base, &ext, request.source, exists))
+        .map(|base| free_name(out_dir, base, &ext, piece_count, request.source, exists))
         .collect::<Result<_, _>>()?;
 
     let mut steps = Vec::new();
@@ -66,10 +70,10 @@ pub fn plan_export(
             }
         }
         ExportMode::Merged => {
+            let name = &names[0];
             let mut pieces: Vec<PathBuf> = Vec::new();
             for (i, segment) in request.segments.iter().enumerate() {
-                let piece =
-                    out_dir.join(format!("{}.piece-{:02}.partial.{ext}", request.stem, i + 1));
+                let piece = out_dir.join(format!("{name}.piece-{:02}.partial.{ext}", i + 1));
                 steps.push(PlanStep {
                     program: Tool::Ffmpeg,
                     args: segment_args(request, segment, &piece),
@@ -79,9 +83,9 @@ pub fn plan_export(
                 pieces.push(piece);
             }
 
-            let list_path = out_dir.join(format!("{}.concat.txt", request.stem));
-            let final_output = out_dir.join(format!("{}.{ext}", names[0]));
-            let temp_output = out_dir.join(format!("{}.partial.{ext}", names[0]));
+            let list_path = out_dir.join(format!("{name}.concat.txt"));
+            let final_output = out_dir.join(format!("{name}.{ext}"));
+            let temp_output = out_dir.join(format!("{name}.partial.{ext}"));
             let mut args = common_args();
             args.extend(["-f", "concat", "-safe", "0", "-i"].map(OsString::from));
             args.push(list_path.clone().into_os_string());
@@ -159,15 +163,16 @@ fn extension_for(request: &ExportRequest<'_>) -> String {
     }
 }
 
-/// Returns `base` or `base (n)` for the first candidate that is neither taken nor the source.
+/// Returns `base` or `base (n)` for the first candidate whose derived paths are all free.
 fn free_name(
     out_dir: &Path,
     base: &str,
     ext: &str,
+    piece_count: usize,
     source: &Path,
     exists: &dyn Fn(&Path) -> bool,
 ) -> Result<String, PlanError> {
-    if out_dir.join(format!("{base}.{ext}")) == source {
+    if same_path(&out_dir.join(format!("{base}.{ext}")), source) {
         return Err(PlanError::OutputEqualsSource);
     }
     let mut number = 1;
@@ -177,12 +182,34 @@ fn free_name(
         } else {
             format!("{base} ({number})")
         };
-        let path = out_dir.join(format!("{name}.{ext}"));
-        if path != source && !exists(&path) {
+        let free = derived_paths(out_dir, &name, ext, piece_count)
+            .iter()
+            .all(|path| !same_path(path, source) && !exists(path));
+        if free {
             return Ok(name);
         }
         number += 1;
     }
+}
+
+/// Every path a candidate name creates: the output, its temp file and, for a merge, each piece and the concat list.
+fn derived_paths(out_dir: &Path, name: &str, ext: &str, piece_count: usize) -> Vec<PathBuf> {
+    let mut paths = vec![
+        out_dir.join(format!("{name}.{ext}")),
+        out_dir.join(format!("{name}.partial.{ext}")),
+    ];
+    if piece_count > 0 {
+        paths.extend(
+            (1..=piece_count).map(|i| out_dir.join(format!("{name}.piece-{i:02}.partial.{ext}"))),
+        );
+        paths.push(out_dir.join(format!("{name}.concat.txt")));
+    }
+    paths
+}
+
+/// Whether two paths name the same file, ignoring case (macOS and Windows are case-insensitive by default).
+fn same_path(a: &Path, b: &Path) -> bool {
+    a.to_string_lossy().to_lowercase() == b.to_string_lossy().to_lowercase()
 }
 
 /// The arguments every FFmpeg step starts with.

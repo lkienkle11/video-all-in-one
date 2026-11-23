@@ -187,3 +187,152 @@ fn temp_outputs_keep_the_extension() {
         vec![PathBuf::from("/out/clip-01.mkv")]
     );
 }
+
+#[test]
+fn source_with_uppercase_extension_is_never_overwritten() {
+    let info = full_info();
+    // The Fast output extension is lowercased, so `/out/clip.mp4` is the same file as the
+    // source `/out/clip.MP4` on a case-insensitive file system: refuse instead of renaming.
+    let merged = plan(
+        &info,
+        "/out/clip.MP4",
+        &[seg(0, 1_000)],
+        CutMode::Fast,
+        ExportMode::Merged,
+    );
+    assert_eq!(merged.unwrap_err(), PlanError::OutputEqualsSource);
+}
+
+#[test]
+fn output_equal_to_source_ignoring_case_is_rejected_before_numbering() {
+    let info = full_info();
+    let separate = plan(
+        &info,
+        "/OUT/CLIP-01.mp4",
+        &[seg(0, 1_000)],
+        CutMode::Fast,
+        ExportMode::Separate,
+    );
+    assert_eq!(separate, Err(PlanError::OutputEqualsSource));
+
+    let merged = plan(
+        &info,
+        "/OUT/CLIP.mp4",
+        &[seg(0, 1_000)],
+        CutMode::Fast,
+        ExportMode::Merged,
+    );
+    assert_eq!(merged, Err(PlanError::OutputEqualsSource));
+}
+
+#[test]
+fn stale_partial_file_bumps_the_number() {
+    let info = full_info();
+    let stale = |p: &Path| p == Path::new("/out/clip-01.partial.mp4");
+    let plan = plan_with(
+        &info,
+        "/videos/in.mp4",
+        &[seg(0, 1_000)],
+        CutMode::Fast,
+        ExportMode::Separate,
+        &stale,
+    )
+    .unwrap();
+    assert_eq!(plan.outputs, vec![PathBuf::from("/out/clip-01 (2).mp4")]);
+    assert_eq!(
+        plan.steps[0].temp_output,
+        PathBuf::from("/out/clip-01 (2).partial.mp4")
+    );
+}
+
+#[test]
+fn stale_piece_file_bumps_the_number() {
+    let info = full_info();
+    let stale = |p: &Path| p == Path::new("/out/clip.piece-02.partial.mp4");
+    let plan = plan_with(
+        &info,
+        "/videos/in.mp4",
+        &[seg(0, 1_000), seg(2_000, 3_000)],
+        CutMode::Fast,
+        ExportMode::Merged,
+        &stale,
+    )
+    .unwrap();
+    assert_eq!(plan.outputs, vec![PathBuf::from("/out/clip (2).mp4")]);
+    assert_eq!(
+        plan.steps[0].temp_output,
+        PathBuf::from("/out/clip (2).piece-01.partial.mp4")
+    );
+    assert_eq!(
+        plan.steps[1].temp_output,
+        PathBuf::from("/out/clip (2).piece-02.partial.mp4")
+    );
+}
+
+#[test]
+fn stale_concat_list_bumps_the_number() {
+    let info = full_info();
+    let stale = |p: &Path| p == Path::new("/out/clip.concat.txt");
+    let plan = plan_with(
+        &info,
+        "/videos/in.mp4",
+        &[seg(0, 1_000)],
+        CutMode::Fast,
+        ExportMode::Merged,
+        &stale,
+    )
+    .unwrap();
+    assert_eq!(plan.outputs, vec![PathBuf::from("/out/clip (2).mp4")]);
+    assert_eq!(
+        plan.support_files[0].path,
+        PathBuf::from("/out/clip (2).concat.txt")
+    );
+}
+
+#[test]
+fn pieces_and_list_follow_the_numbered_name() {
+    let info = full_info();
+    let stale = |p: &Path| p == Path::new("/out/clip.mp4");
+    let plan = plan_with(
+        &info,
+        "/videos/in.mp4",
+        &[seg(0, 1_000), seg(2_000, 3_000)],
+        CutMode::Fast,
+        ExportMode::Merged,
+        &stale,
+    )
+    .unwrap();
+    assert_eq!(plan.outputs, vec![PathBuf::from("/out/clip (2).mp4")]);
+    assert_eq!(
+        plan.support_files[0].path,
+        PathBuf::from("/out/clip (2).concat.txt")
+    );
+    assert_eq!(
+        plan.support_files[0].contents,
+        "file '/out/clip (2).piece-01.partial.mp4'\nfile '/out/clip (2).piece-02.partial.mp4'\n"
+    );
+}
+
+#[test]
+fn numbering_skips_every_taken_number() {
+    let info = full_info();
+    let taken = |p: &Path| {
+        [
+            "/out/clip.mp4",
+            "/out/clip (2).mp4",
+            "/out/clip (3).partial.mp4",
+        ]
+        .iter()
+        .any(|t| p == Path::new(t))
+    };
+    let plan = plan_with(
+        &info,
+        "/videos/in.mp4",
+        &[seg(0, 1_000)],
+        CutMode::Fast,
+        ExportMode::Merged,
+        &taken,
+    )
+    .unwrap();
+    assert_eq!(plan.outputs, vec![PathBuf::from("/out/clip (4).mp4")]);
+}
