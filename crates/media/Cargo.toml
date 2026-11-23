@@ -1,0 +1,4 @@
+[package]
+name = "vaio-media"
+version.workspace = true
+edition.workspace = true

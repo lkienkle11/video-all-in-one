@@ -1,0 +1,4 @@
+[package]
+name = "vaio-storage"
+version.workspace = true
+edition.workspace = true

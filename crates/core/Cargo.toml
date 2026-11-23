@@ -1,0 +1,4 @@
+[package]
+name = "vaio-core"
+version.workspace = true
+edition.workspace = true

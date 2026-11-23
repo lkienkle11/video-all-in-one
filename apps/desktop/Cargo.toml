@@ -1,0 +1,4 @@
+[package]
+name = "vaio-desktop"
+version.workspace = true
+edition.workspace = true
