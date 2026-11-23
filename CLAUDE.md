@@ -76,3 +76,22 @@ When the user asks to create a tag or a release (for example "tag v0.1.2", "merg
 7. Report to the user: the final version, the size rating used, what the release notes say, and the verification result.
 
 <!-- end:release-tag-rule:end -->
+
+<!-- begin:codegraph-rule:start -->
+## Code Exploration Rule (CodeGraph first)
+
+This repository is indexed with CodeGraph (`.codegraph/`). Use it as the first tool for exploring code, before falling back to `grep`, `find`, or reading many files one by one.
+
+- **Prefer the MCP tool `codegraph_explore`** (or the CLI equivalents below) to find symbols, read their verbatim source, trace call paths, and see blast radius in one round-trip.
+- **CLI commands** (run from the repository root; output is the same as the MCP tools):
+  - `codegraph explore "<question or symbol>"` — relevant symbols' source plus call paths.
+  - `codegraph context "<task>"` — build context for a task before editing.
+  - `codegraph query "<name>"` — search for symbols by name.
+  - `codegraph node "<symbol or path>"` — one symbol's source with its callers and callees, or a file with line numbers and dependents.
+  - `codegraph files` — project file structure from the index.
+  - `codegraph status` — check that the index exists and is current.
+- **Keep the index fresh:** run `codegraph sync` after pulling, switching branches, or making large edits. Run `codegraph index` only to rebuild from scratch.
+- **Fall back** to `grep`/`Read` only for non-code files (docs, configs, lockfiles), for exact text matches the graph cannot express, or when the index is missing. Do not run `codegraph init` or `codegraph index` in other projects without the user's consent.
+- **Do not commit** the index database (`.codegraph/codegraph.db`); it is local and rebuilt per machine.
+
+<!-- end:codegraph-rule:end -->
