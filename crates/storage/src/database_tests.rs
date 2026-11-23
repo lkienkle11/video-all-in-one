@@ -220,7 +220,9 @@ fn wal_mode_is_active_and_foreign_keys_are_on() {
 fn open_waits_for_a_busy_database_instead_of_failing_at_once() {
     // A rollback-journal database whose file is locked exclusively by another connection:
     // reading the schema version needs a shared lock, so `open` must wait for the busy timeout
-    // that is set right after the file is opened.
+    // instead of failing at once. rusqlite already starts every connection with a 5 s timeout,
+    // so this pins the behavior (a timeout of zero makes it fail); it cannot tell whether the
+    // explicit call comes before or after the version read.
     let dir = TempDir::new("busy-open");
     let path = dir.database();
     seed_v1_with_job(&path);
