@@ -37,8 +37,10 @@ apps/desktop | Presents the desktop interface and connects it to application ser
 crates/core | Defines domain policy, services and ports independently of adapters.
 crates/core/src/domain | Holds the core domain types: media timestamps, job identity, job kinds, job states and the job transition rules.
 crates/core/src/i18n | Holds the languages, UI text keys and English and Vietnamese string tables.
+crates/core/src/update | Parses and validates the update manifest and decides whether a newer version is offered, without I/O.
 crates/media | Implements media processing and playback integrations.
 crates/platform | Provides operating system integration and external tool resolution.
+crates/platform/src/update | Verifies downloaded update artifacts against their SHA-256 digest and Ed25519 signature.
 crates/storage | Implements persistent storage for application data.
 xtask | Provides workspace maintenance and release commands.
 xtask/src/check_structure | Checks workspace dependencies, source placement, and the architecture map.
