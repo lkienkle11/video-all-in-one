@@ -46,9 +46,17 @@ impl<B: UpdateBackend, V: ArtifactVerifier> UpdateService<B, V> {
         &self.state
     }
 
-    /// Fetches and decides. Allowed from any state except `Downloading`.
+    /// Fetches and decides. Works only from `Idle`, `UpToDate`, `Available` and `Failed`, so a
+    /// verified staged file is never replaced by a re-check.
     pub fn check(&mut self) {
-        if !self.enabled || matches!(self.state, UpdateState::Downloading { .. }) {
+        let may_check = matches!(
+            self.state,
+            UpdateState::Idle
+                | UpdateState::UpToDate
+                | UpdateState::Available(_)
+                | UpdateState::Failed(_)
+        );
+        if !self.enabled || !may_check {
             return;
         }
         self.state = UpdateState::Checking;
@@ -133,18 +141,21 @@ impl<B: UpdateBackend, V: ArtifactVerifier> UpdateService<B, V> {
         };
     }
 
-    /// Installs a verified file. Only allowed from `Ready`.
+    /// Installs a verified file. Allowed from `Ready`, and from `InstallFailed` to retry with
+    /// the same staged file (no new download). A failed install keeps the file.
     pub fn install(&mut self) {
         if !self.enabled {
             return;
         }
         let staged = match &self.state {
-            UpdateState::Ready(staged) => staged.clone(),
+            UpdateState::Ready(staged) | UpdateState::InstallFailed { staged, .. } => {
+                staged.clone()
+            }
             _ => return,
         };
-        self.state = match self.backend.install(staged) {
+        self.state = match self.backend.install(staged.clone()) {
             Ok(()) => UpdateState::Installed,
-            Err(error) => UpdateState::Failed(error),
+            Err(error) => UpdateState::InstallFailed { staged, error },
         };
     }
 }

@@ -10,10 +10,14 @@ use crate::update::{
 
 use super::service_fakes::{manifest, signature, staged, Backend, Fake, Verifier, ASSET_SIZE};
 
-const KEY: [u8; 32] = [3; 32];
-const PLATFORM: &str = "macos-aarch64";
+pub(super) const KEY: [u8; 32] = [3; 32];
+pub(super) const PLATFORM: &str = "macos-aarch64";
 
-fn service(fake: &Rc<Fake>, current: &str, enabled: bool) -> UpdateService<Backend, Verifier> {
+pub(super) fn service(
+    fake: &Rc<Fake>,
+    current: &str,
+    enabled: bool,
+) -> UpdateService<Backend, Verifier> {
     UpdateService::new(
         Backend(fake.clone()),
         Verifier(fake.clone()),
@@ -24,7 +28,7 @@ fn service(fake: &Rc<Fake>, current: &str, enabled: bool) -> UpdateService<Backe
     )
 }
 
-fn available(version: &str) -> UpdateState {
+pub(super) fn available(version: &str) -> UpdateState {
     UpdateState::Available(AvailableUpdate {
         version: Version::parse(version).unwrap(),
         size: ASSET_SIZE,
@@ -40,7 +44,7 @@ fn available(version: &str) -> UpdateState {
 }
 
 /// A service already in `Available`, ready to download.
-fn available_service(fake: &Rc<Fake>) -> UpdateService<Backend, Verifier> {
+pub(super) fn available_service(fake: &Rc<Fake>) -> UpdateService<Backend, Verifier> {
     let mut service = service(fake, "0.1.0", true);
     service.check();
     assert_eq!(service.state(), &available("0.1.1"));
@@ -216,7 +220,10 @@ fn install_failure_is_reported() {
     service.install();
     assert_eq!(
         service.state(),
-        &UpdateState::Failed(UpdateError::Install("disk full".to_string()))
+        &UpdateState::InstallFailed {
+            staged: staged(ASSET_SIZE),
+            error: UpdateError::Install("disk full".to_string()),
+        }
     );
 }
 
@@ -226,6 +233,10 @@ fn retry_after_failure_can_check_again() {
     *fake.manifest.borrow_mut() = Err(UpdateError::Network("offline".to_string()));
     let mut service = service(&fake, "0.1.0", true);
     service.check();
+    assert_eq!(
+        service.state(),
+        &UpdateState::Failed(UpdateError::Network("offline".to_string()))
+    );
     *fake.manifest.borrow_mut() = Ok(manifest(1, "0.1.1", Some(PLATFORM)));
     service.check();
     assert_eq!(service.state(), &available("0.1.1"));

@@ -8,6 +8,8 @@ mod service;
 #[cfg(test)]
 mod service_fakes;
 #[cfg(test)]
+mod service_retry_tests;
+#[cfg(test)]
 mod service_tests;
 mod staged;
 mod state;

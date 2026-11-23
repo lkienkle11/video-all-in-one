@@ -11,8 +11,16 @@ pub enum UpdateState {
     Checking,
     UpToDate,
     Available(AvailableUpdate),
-    Downloading { done: u64, total: Option<u64> },
+    Downloading {
+        done: u64,
+        total: Option<u64>,
+    },
     Ready(StagedFile),
+    /// An install failed; the verified file is kept so that install can be retried.
+    InstallFailed {
+        staged: StagedFile,
+        error: UpdateError,
+    },
     Installed,
     Failed(UpdateError),
 }
