@@ -2,3 +2,7 @@
 name = "vaio-media"
 version.workspace = true
 edition.workspace = true
+
+[dependencies]
+vaio-core = { path = "../core" }
+serde_json.workspace = true

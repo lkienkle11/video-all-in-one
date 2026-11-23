@@ -7704,6 +7704,10 @@ dependencies = [
 [[package]]
 name = "vaio-media"
 version = "0.0.0"
+dependencies = [
+ "serde_json",
+ "vaio-core",
+]
 
 [[package]]
 name = "vaio-platform"
