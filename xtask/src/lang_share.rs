@@ -2,6 +2,12 @@ use anyhow::{bail, Context, Result};
 use std::fs;
 use std::path::Path;
 
+pub fn run(root: &Path, min: f64) -> Result<()> {
+    let share = rust_share(root)?;
+    println!("Rust: {share:.1}%");
+    check_minimum(share, min)
+}
+
 pub fn rust_share(root: &Path) -> Result<f64> {
     fn count(path: &Path, rust: &mut usize, total: &mut usize) -> Result<()> {
         for entry in fs::read_dir(path).with_context(|| format!("reading {}", path.display()))? {
@@ -178,7 +184,7 @@ mod tests {
         let root = fixture();
         fs::write(root.join("code.rs"), "line\n".repeat(10)).unwrap();
         fs::write(root.join("code.sh"), "line\n".repeat(5)).unwrap();
-        assert!(crate::run_lang_share(&root, 85.0).is_err());
-        assert!(crate::run_lang_share(&root, 60.0).is_ok());
+        assert!(super::run(&root, 85.0).is_err());
+        assert!(super::run(&root, 60.0).is_ok());
     }
 }
