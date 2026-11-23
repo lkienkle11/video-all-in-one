@@ -5,8 +5,12 @@ mod keygen;
 mod lang_share;
 mod latest_json;
 #[cfg(test)]
+mod latest_json_policy_tests;
+#[cfg(test)]
 mod latest_json_tests;
 mod set_version;
+#[cfg(test)]
+mod set_version_tests;
 mod sign;
 mod structure_map;
 
@@ -59,6 +63,12 @@ enum Command {
         base_url: String,
         #[arg(long)]
         out: Option<PathBuf>,
+        /// Base64 of the 32-byte Ed25519 public key that every artifact signature must match.
+        #[arg(long)]
+        public_key: String,
+        /// Platform keys that must have an artifact, comma separated.
+        #[arg(long, value_delimiter = ',')]
+        require: Vec<String>,
     },
 }
 
@@ -76,7 +86,20 @@ fn main() -> Result<()> {
             assets,
             base_url,
             out,
-        } => latest_json::run(&version, &notes, &assets, &base_url, out.as_deref()),
+            public_key,
+            require,
+        } => {
+            let key = latest_json::decode_public_key(&public_key)?;
+            latest_json::run(
+                &version,
+                &notes,
+                &assets,
+                &base_url,
+                out.as_deref(),
+                &key,
+                &require,
+            )
+        }
         Command::CheckStructure => {
             let output = std::process::Command::new("cargo")
                 .args(["metadata", "--format-version", "1", "--no-deps"])

@@ -1,7 +1,7 @@
 use anyhow::{bail, Context, Result};
 use semver::Version;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// Rewrites the workspace version in `Cargo.toml` and every workspace member in
 /// `Cargo.lock`, then checks the result before writing either file.
@@ -29,10 +29,39 @@ pub fn set_version(root: &Path, version: &str) -> Result<()> {
         bail!("versions do not equal {version}: {}", mismatches.join("; "));
     }
 
-    fs::write(&cargo_path, new_cargo)
-        .with_context(|| format!("writing {}", cargo_path.display()))?;
-    fs::write(&lock_path, new_lock).with_context(|| format!("writing {}", lock_path.display()))?;
+    write_atomic(&cargo_path, &new_cargo)?;
+    if let Err(error) = write_atomic(&lock_path, &new_lock) {
+        return match write_atomic(&cargo_path, &cargo) {
+            Ok(()) => Err(error.context(format!(
+                "{} was restored to its original text",
+                cargo_path.display()
+            ))),
+            Err(restore) => Err(error.context(format!(
+                "restoring {} also failed: {restore:#}",
+                cargo_path.display()
+            ))),
+        };
+    }
     Ok(())
+}
+
+/// Writes `text` to a temporary file next to `path`, then renames it over `path`.
+fn write_atomic(path: &Path, text: &str) -> Result<()> {
+    let tmp = temp_path_for(path);
+    let result = fs::write(&tmp, text).and_then(|()| fs::rename(&tmp, path));
+    if result.is_err() {
+        let _ = fs::remove_file(&tmp);
+    }
+    result.with_context(|| format!("writing {}", path.display()))
+}
+
+/// The temporary file used by `write_atomic`: `.<name>.tmp` in the same folder.
+fn temp_path_for(path: &Path) -> PathBuf {
+    let name = path
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    path.with_file_name(format!(".{name}.tmp"))
 }
 
 /// Parses a release version: three numeric parts, no pre-release, no build metadata.
@@ -189,74 +218,5 @@ pub(crate) mod fixture {
         fn drop(&mut self) {
             let _ = fs::remove_dir_all(&self.0);
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{fixture::Fixture, set_version};
-    use std::fs;
-
-    const CARGO: &str = "[workspace]\nmembers = [\"a\", \"b\", \"c\"]\n\n[workspace.package]\nversion = \"0.0.0\"\nedition = \"2021\"\n";
-
-    const LOCK: &str = "version = 4\n\n[[package]]\nname = \"a\"\nversion = \"0.0.0\"\n\n[[package]]\nname = \"anyhow\"\nversion = \"1.0.0\"\nsource = \"registry+https://github.com/rust-lang/crates.io-index\"\nchecksum = \"aaaa\"\n\n[[package]]\nname = \"b\"\nversion = \"0.0.0\"\n\n[[package]]\nname = \"c\"\nversion = \"0.0.0\"\n\n[[package]]\nname = \"serde\"\nversion = \"1.0.0\"\nsource = \"registry+https://github.com/rust-lang/crates.io-index\"\nchecksum = \"bbbb\"\n";
-
-    const LOCK_MEMBER_WITHOUT_VERSION: &str =
-        "version = 4\n\n[[package]]\nname = \"a\"\n\n[[package]]\nname = \"b\"\nversion = \"0.0.0\"\n";
-
-    fn write_repo(root: &Fixture, cargo: &str, lock: &str) {
-        fs::write(root.join("Cargo.toml"), cargo).unwrap();
-        fs::write(root.join("Cargo.lock"), lock).unwrap();
-    }
-
-    fn read(root: &Fixture, name: &str) -> String {
-        fs::read_to_string(root.join(name)).unwrap()
-    }
-
-    #[test]
-    fn set_version_updates_every_file_and_they_agree() {
-        let root = Fixture::new();
-        write_repo(&root, CARGO, LOCK);
-
-        set_version(&root, "0.1.0").unwrap();
-
-        assert_eq!(
-            read(&root, "Cargo.toml"),
-            CARGO.replace("version = \"0.0.0\"", "version = \"0.1.0\"")
-        );
-        assert_eq!(
-            read(&root, "Cargo.lock"),
-            LOCK.replace("version = \"0.0.0\"", "version = \"0.1.0\"")
-        );
-    }
-
-    #[test]
-    fn set_version_rejects_invalid_semver() {
-        for bad in ["v0.1.0", "0.1", "0.1.0-alpha.1", "0.1.0+b5", ""] {
-            let root = Fixture::new();
-            write_repo(&root, CARGO, LOCK);
-
-            assert!(set_version(&root, bad).is_err(), "accepted {bad:?}");
-            assert_eq!(
-                read(&root, "Cargo.toml"),
-                CARGO,
-                "Cargo.toml changed for {bad:?}"
-            );
-            assert_eq!(
-                read(&root, "Cargo.lock"),
-                LOCK,
-                "Cargo.lock changed for {bad:?}"
-            );
-        }
-    }
-
-    #[test]
-    fn set_version_fails_when_a_member_block_cannot_be_updated() {
-        let root = Fixture::new();
-        write_repo(&root, CARGO, LOCK_MEMBER_WITHOUT_VERSION);
-
-        assert!(set_version(&root, "0.1.0").is_err());
-        assert_eq!(read(&root, "Cargo.toml"), CARGO);
-        assert_eq!(read(&root, "Cargo.lock"), LOCK_MEMBER_WITHOUT_VERSION);
     }
 }

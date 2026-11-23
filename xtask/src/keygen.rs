@@ -6,6 +6,8 @@ use std::io::{ErrorKind, Write};
 use std::path::{Path, PathBuf};
 
 pub const KEY_FILE_NAME: &str = "update-signing.key";
+/// Base64 of the 32-byte public key; CI reads it to pass `--public-key` to `latest-json`.
+pub const PUBLIC_KEY_FILE_NAME: &str = "update-signing.pub";
 
 #[derive(Debug)]
 pub struct KeygenOutput {
@@ -50,6 +52,10 @@ pub fn keygen(out_dir: &Path, seed: [u8; 32]) -> Result<KeygenOutput> {
     };
     let encoded = base64::engine::general_purpose::STANDARD.encode(seed);
     writeln!(file, "{encoded}").with_context(|| format!("writing {}", key_path.display()))?;
+    let pub_path = out_dir.join(PUBLIC_KEY_FILE_NAME);
+    let public_text = base64::engine::general_purpose::STANDARD.encode(public_key);
+    fs::write(&pub_path, format!("{public_text}\n"))
+        .with_context(|| format!("writing {}", pub_path.display()))?;
     Ok(KeygenOutput {
         key_path,
         public_key,
@@ -144,6 +150,17 @@ mod tests {
             }
         }
         assert_eq!(parsed, expected.to_vec());
+    }
+
+    #[test]
+    fn keygen_writes_the_public_key_file() {
+        let root = Fixture::new();
+        let out = keygen(&root, SEED).unwrap();
+        let text = fs::read_to_string(root.join("update-signing.pub")).unwrap();
+        let expected = SigningKey::from_bytes(&SEED).verifying_key().to_bytes();
+        let encoded = base64::engine::general_purpose::STANDARD.encode(expected);
+        assert_eq!(text, format!("{encoded}\n"));
+        assert_eq!(out.public_key, expected);
     }
 
     #[test]

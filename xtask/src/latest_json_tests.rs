@@ -2,52 +2,65 @@ use crate::changelog::{read_notes, Notes, VIETNAMESE_TITLE};
 use crate::latest_json::{add_unique, build_manifest, run};
 use crate::set_version::fixture::Fixture;
 use base64::Engine;
+use ed25519_dalek::{Signer, SigningKey};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
 use vaio_core::update::parse_manifest;
 
-const VERSION: &str = "0.1.0";
-const BASE: &str = "https://example.test/releases/v0.1.0";
-const ARTIFACTS: [&str; 4] = [
+pub(crate) const VERSION: &str = "0.1.0";
+pub(crate) const BASE: &str = "https://example.test/releases/v0.1.0";
+pub(crate) const ARTIFACTS: [&str; 4] = [
     "video-all-in-one-0.1.0-macos-aarch64.zip",
     "video-all-in-one-0.1.0-macos-x86_64.zip",
     "video-all-in-one-0.1.0-windows-x86_64.exe",
     "video-all-in-one-0.1.0-linux-x86_64.deb",
 ];
+pub(crate) const SEED: [u8; 32] = [9; 32];
+pub(crate) const OTHER_SEED: [u8; 32] = [10; 32];
 
-fn notes() -> Notes {
+pub(crate) fn notes() -> Notes {
     Notes {
         english: "- English notes".to_string(),
         vietnamese: "- Vietnamese notes".to_string(),
     }
 }
 
-fn signature_text() -> String {
-    base64::engine::general_purpose::STANDARD.encode([7u8; 64])
+/// The public key that matches `seed`.
+pub(crate) fn public_key(seed: &[u8; 32]) -> [u8; 32] {
+    SigningKey::from_bytes(seed).verifying_key().to_bytes()
 }
 
-/// Writes an artifact with its `.sig` file next to it.
-fn artifact(dir: &Path, name: &str, bytes: &[u8]) {
+/// Writes an artifact and its `.sig` file: the Ed25519 signature of the SHA-256 digest bytes.
+pub(crate) fn signed_artifact(dir: &Path, name: &str, bytes: &[u8], seed: &[u8; 32]) {
     fs::write(dir.join(name), bytes).unwrap();
-    fs::write(
-        dir.join(format!("{name}.sig")),
-        format!("{}\n", signature_text()),
-    )
-    .unwrap();
+    let digest: [u8; 32] = Sha256::digest(bytes).into();
+    let signature = SigningKey::from_bytes(seed).sign(&digest);
+    let encoded = base64::engine::general_purpose::STANDARD.encode(signature.to_bytes());
+    fs::write(dir.join(format!("{name}.sig")), format!("{encoded}\n")).unwrap();
 }
 
-/// Writes the four artifacts of `VERSION`, each with a `.sig` file.
-fn full_set(dir: &Path) {
+/// Writes an artifact signed with `SEED`.
+pub(crate) fn artifact(dir: &Path, name: &str, bytes: &[u8]) {
+    signed_artifact(dir, name, bytes, &SEED);
+}
+
+/// Writes the four artifacts of `VERSION`, each signed with `SEED`.
+pub(crate) fn full_set(dir: &Path) {
     for (index, name) in ARTIFACTS.iter().enumerate() {
         artifact(dir, name, format!("payload {index}").as_bytes());
     }
 }
 
+/// The manifest of `dir` with the defaults: `SEED`'s public key and no required platforms.
+pub(crate) fn build(dir: &Path) -> anyhow::Result<String> {
+    build_manifest(VERSION, &notes(), dir, BASE, &public_key(&SEED), &[])
+}
+
 fn build_from_changelog(changelog: &str, dir: &Path) -> Result<String, anyhow::Error> {
     let notes = read_notes(changelog, VERSION)?;
-    build_manifest(VERSION, &notes, dir, BASE)
+    build_manifest(VERSION, &notes, dir, BASE, &public_key(&SEED), &[])
 }
 
 fn changelog_text(english: &str, vietnamese: &str) -> String {
@@ -63,7 +76,7 @@ fn latest_json_contains_both_languages_and_schema_1() {
     let root = Fixture::new();
     full_set(&root);
 
-    let value = parsed(&build_manifest(VERSION, &notes(), &root, BASE).unwrap());
+    let value = parsed(&build(&root).unwrap());
 
     assert_eq!(value["schema"], 1);
     assert_eq!(value["version"], VERSION);
@@ -95,7 +108,7 @@ fn manifest_is_accepted_by_the_apps_own_parser() {
     let root = Fixture::new();
     full_set(&root);
 
-    let text = build_manifest(VERSION, &notes(), &root, BASE).unwrap();
+    let text = build(&root).unwrap();
     let manifest = parse_manifest(&text).unwrap();
 
     assert_eq!(manifest.version.to_string(), VERSION);
@@ -108,7 +121,7 @@ fn stale_artifact_version_is_an_error() {
     full_set(&root);
     artifact(&root, "video-all-in-one-0.0.9-linux-x86_64.deb", b"old");
 
-    let error = build_manifest(VERSION, &notes(), &root, BASE).unwrap_err();
+    let error = build(&root).unwrap_err();
     assert!(format!("{error:#}").contains("0.0.9"), "{error:#}");
 }
 
@@ -126,7 +139,7 @@ fn missing_sig_file_is_an_error() {
     full_set(&root);
     fs::remove_file(root.join("video-all-in-one-0.1.0-windows-x86_64.exe.sig")).unwrap();
 
-    let error = build_manifest(VERSION, &notes(), &root, BASE).unwrap_err();
+    let error = build(&root).unwrap_err();
     assert!(
         format!("{error:#}").contains("video-all-in-one-0.1.0-windows-x86_64.exe"),
         "{error:#}"
@@ -140,7 +153,7 @@ fn bad_signature_length_is_an_error() {
     let short = base64::engine::general_purpose::STANDARD.encode([7u8; 63]);
     fs::write(root.join(format!("{}.sig", ARTIFACTS[0])), short).unwrap();
 
-    assert!(build_manifest(VERSION, &notes(), &root, BASE).is_err());
+    assert!(build(&root).is_err());
 }
 
 #[test]
@@ -148,7 +161,15 @@ fn non_https_base_url_is_an_error() {
     let root = Fixture::new();
     full_set(&root);
 
-    let error = build_manifest(VERSION, &notes(), &root, "http://example.test/x").unwrap_err();
+    let error = build_manifest(
+        VERSION,
+        &notes(),
+        &root,
+        "http://example.test/x",
+        &public_key(&SEED),
+        &[],
+    )
+    .unwrap_err();
     assert!(format!("{error:#}").contains("https://"), "{error:#}");
 }
 
@@ -164,7 +185,7 @@ fn unrelated_files_are_ignored() {
     fs::write(root.join("notes.txt"), b"notes").unwrap();
     fs::write(root.join("latest.json"), b"{}").unwrap();
 
-    let value = parsed(&build_manifest(VERSION, &notes(), &root, BASE).unwrap());
+    let value = parsed(&build(&root).unwrap());
 
     assert_eq!(value["assets"].as_object().unwrap().len(), 4);
 }
@@ -175,7 +196,7 @@ fn sha256_and_size_match_the_file() {
     let bytes: Vec<u8> = (0..20_000).map(|i| (i % 253) as u8).collect();
     artifact(&root, ARTIFACTS[3], &bytes);
 
-    let value = parsed(&build_manifest(VERSION, &notes(), &root, BASE).unwrap());
+    let value = parsed(&build(&root).unwrap());
 
     let linux = &value["assets"]["linux-x86_64"];
     let expected: String = Sha256::digest(&bytes)
@@ -191,7 +212,7 @@ fn no_artifacts_is_an_error() {
     let root = Fixture::new();
     fs::write(root.join("notes.txt"), b"notes").unwrap();
 
-    assert!(build_manifest(VERSION, &notes(), &root, BASE).is_err());
+    assert!(build(&root).is_err());
 }
 
 #[test]
@@ -208,6 +229,8 @@ fn nothing_is_written_on_error() {
         &root,
         BASE,
         Some(out.as_path()),
+        &public_key(&SEED),
+        &[],
     );
 
     assert!(result.is_err());
@@ -221,7 +244,16 @@ fn run_writes_the_manifest_to_the_default_path() {
     full_set(&root);
     fs::write(root.join("CHANGELOG.md"), changelog_text("En", "Vi")).unwrap();
 
-    run(VERSION, &root.join("CHANGELOG.md"), &root, BASE, None).unwrap();
+    run(
+        VERSION,
+        &root.join("CHANGELOG.md"),
+        &root,
+        BASE,
+        None,
+        &public_key(&SEED),
+        &[],
+    )
+    .unwrap();
 
     let text = fs::read_to_string(root.join("latest.json")).unwrap();
     assert_eq!(parse_manifest(&text).unwrap().assets.len(), 4);
@@ -232,7 +264,7 @@ fn rejects_a_version_with_pre_release_text() {
     let root = Fixture::new();
     full_set(&root);
 
-    let result = build_manifest("0.1.0-beta", &notes(), &root, BASE);
+    let result = build_manifest("0.1.0-beta", &notes(), &root, BASE, &public_key(&SEED), &[]);
 
     assert!(result.is_err());
 }
