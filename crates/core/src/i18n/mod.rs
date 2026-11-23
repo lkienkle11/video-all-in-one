@@ -227,6 +227,83 @@ mod tests {
         assert!(!chosen.needs_language_choice());
     }
 
+    /// Position of each text in the enum, numbered from 0. Exhaustive on purpose:
+    /// a new variant fails to compile until it is numbered here.
+    fn index(t: Text) -> usize {
+        match t {
+            Text::AppTitle => 0,
+            Text::ChooseLanguageTitle => 1,
+            Text::ChooseLanguageBody => 2,
+            Text::LanguageEnglish => 3,
+            Text::LanguageVietnamese => 4,
+            Text::SettingsTitle => 5,
+            Text::SettingsLanguage => 6,
+            Text::SettingsVersion => 7,
+            Text::UpdateChecking => 8,
+            Text::UpdateUpToDate => 9,
+            Text::UpdateAvailable => 10,
+            Text::UpdateDownload => 11,
+            Text::UpdateInstall => 12,
+            Text::UpdateDownloading => 13,
+            Text::UpdateRetry => 14,
+            Text::UpdateConfirmTitle => 15,
+            Text::UpdateConfirmBody => 16,
+            Text::UpdateLater => 17,
+            Text::UpdateNow => 18,
+            Text::ErrorGeneric => 19,
+            Text::Close => 20,
+        }
+    }
+
+    #[test]
+    fn text_all_lists_every_variant_in_enum_order() {
+        for (position, text) in Text::ALL.iter().enumerate() {
+            assert_eq!(
+                index(*text),
+                position,
+                "Text::ALL[{position}] is {text:?}, which is out of enum order"
+            );
+        }
+        // Close is the last variant, so its index is the highest one.
+        let highest = index(Text::Close);
+        assert_eq!(
+            Text::ALL.len(),
+            highest + 1,
+            "Text::ALL does not list every variant"
+        );
+    }
+
+    /// The numbers of the well-formed `{N}` placeholders in `s`, in order of appearance.
+    fn placeholder_numbers(s: &str) -> Vec<usize> {
+        let mut numbers = Vec::new();
+        let mut rest = s;
+        while let Some(start) = rest.find('{') {
+            let after = &rest[start + 1..];
+            let Some(end) = after.find('}') else {
+                break;
+            };
+            let key = &after[..end];
+            if !key.is_empty() && key.bytes().all(|b| b.is_ascii_digit()) {
+                if let Ok(number) = key.parse::<usize>() {
+                    numbers.push(number);
+                }
+            }
+            rest = &after[end + 1..];
+        }
+        numbers
+    }
+
+    #[test]
+    fn placeholders_appear_in_the_same_order_in_both_languages() {
+        for text in Text::ALL {
+            assert_eq!(
+                placeholder_numbers(tr(Language::English, text)),
+                placeholder_numbers(tr(Language::Vietnamese, text)),
+                "{text:?} has its placeholders in a different order"
+            );
+        }
+    }
+
     #[test]
     fn language_roundtrips_through_code() {
         assert_eq!(Language::English.code(), "en");
@@ -236,5 +313,8 @@ mod tests {
         assert_eq!(Language::from_code("EN"), None);
         assert_eq!(Language::from_code("fr"), None);
         assert_eq!(Language::from_code(""), None);
+        for language in [Language::English, Language::Vietnamese] {
+            assert_eq!(Language::from_code(language.code()), Some(language));
+        }
     }
 }
