@@ -35,6 +35,7 @@ replace `TODO` with one sentence, commit the map with the code.
 <!-- structure-map:start -->
 apps/desktop | Presents the desktop interface and connects it to application services.
 crates/core | Defines domain policy, services and ports independently of adapters.
+crates/core/src/i18n | Holds the languages, UI text keys and English and Vietnamese string tables.
 crates/media | Implements media processing and playback integrations.
 crates/platform | Provides operating system integration and external tool resolution.
 crates/storage | Implements persistent storage for application data.

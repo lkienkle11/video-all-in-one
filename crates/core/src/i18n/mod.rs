@@ -1,0 +1,240 @@
+//! Bilingual UI strings: languages, text keys and the translation lookups.
+
+mod en;
+mod vi;
+
+/// A language the UI can be shown in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Language {
+    English,
+    Vietnamese,
+}
+
+impl Language {
+    /// The stable short code stored in settings.
+    pub fn code(&self) -> &'static str {
+        match self {
+            Language::English => "en",
+            Language::Vietnamese => "vi",
+        }
+    }
+
+    /// Parses a code produced by `code`. Matching is case-sensitive.
+    pub fn from_code(code: &str) -> Option<Language> {
+        match code {
+            "en" => Some(Language::English),
+            "vi" => Some(Language::Vietnamese),
+            _ => None,
+        }
+    }
+}
+
+/// Every piece of UI text the app shows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Text {
+    AppTitle,
+    ChooseLanguageTitle,
+    ChooseLanguageBody,
+    LanguageEnglish,
+    LanguageVietnamese,
+    SettingsTitle,
+    SettingsLanguage,
+    SettingsVersion,
+    UpdateChecking,
+    UpdateUpToDate,
+    UpdateAvailable,
+    UpdateDownload,
+    UpdateInstall,
+    UpdateDownloading,
+    UpdateRetry,
+    UpdateConfirmTitle,
+    UpdateConfirmBody,
+    UpdateLater,
+    UpdateNow,
+    ErrorGeneric,
+    Close,
+}
+
+impl Text {
+    /// Every text key, in the same order as the enum.
+    pub const ALL: [Text; 21] = [
+        Text::AppTitle,
+        Text::ChooseLanguageTitle,
+        Text::ChooseLanguageBody,
+        Text::LanguageEnglish,
+        Text::LanguageVietnamese,
+        Text::SettingsTitle,
+        Text::SettingsLanguage,
+        Text::SettingsVersion,
+        Text::UpdateChecking,
+        Text::UpdateUpToDate,
+        Text::UpdateAvailable,
+        Text::UpdateDownload,
+        Text::UpdateInstall,
+        Text::UpdateDownloading,
+        Text::UpdateRetry,
+        Text::UpdateConfirmTitle,
+        Text::UpdateConfirmBody,
+        Text::UpdateLater,
+        Text::UpdateNow,
+        Text::ErrorGeneric,
+        Text::Close,
+    ];
+}
+
+/// Returns the raw text for a language, with any `{n}` placeholders unfilled.
+pub fn tr(lang: Language, text: Text) -> &'static str {
+    match lang {
+        Language::English => en::text(text),
+        Language::Vietnamese => vi::text(text),
+    }
+}
+
+/// Returns the text with `{0}`, `{1}`, ... replaced by `args[0]`, `args[1]`, ...
+/// A placeholder without an argument is kept as written; an extra argument is ignored.
+/// Substitution is single-pass, so an argument is never expanded again.
+pub fn tr_fmt(lang: Language, text: Text, args: &[&str]) -> String {
+    let template = tr(lang, text);
+    let mut out = String::with_capacity(template.len());
+    let mut rest = template;
+    while let Some(start) = rest.find('{') {
+        out.push_str(&rest[..start]);
+        let after = &rest[start + 1..];
+        let Some(end) = after.find('}') else {
+            break;
+        };
+        let key = &after[..end];
+        let is_index = !key.is_empty() && key.bytes().all(|b| b.is_ascii_digit());
+        match key
+            .parse::<usize>()
+            .ok()
+            .filter(|_| is_index)
+            .and_then(|i| args.get(i))
+        {
+            Some(arg) => out.push_str(arg),
+            None => out.push_str(&rest[start..start + end + 2]),
+        }
+        rest = &after[end + 1..];
+    }
+    out.push_str(rest);
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::settings::Settings;
+
+    #[test]
+    fn every_text_has_non_empty_english_and_vietnamese() {
+        for text in Text::ALL {
+            assert!(
+                !tr(Language::English, text).is_empty(),
+                "{text:?} has no English text"
+            );
+            assert!(
+                !tr(Language::Vietnamese, text).is_empty(),
+                "{text:?} has no Vietnamese text"
+            );
+        }
+    }
+
+    #[test]
+    fn vietnamese_differs_from_english_for_every_text_except_app_title() {
+        for text in Text::ALL {
+            // The app name and the language names are the same word in both languages.
+            if matches!(
+                text,
+                Text::AppTitle | Text::LanguageEnglish | Text::LanguageVietnamese
+            ) {
+                continue;
+            }
+            assert_ne!(
+                tr(Language::English, text),
+                tr(Language::Vietnamese, text),
+                "{text:?} is not translated"
+            );
+        }
+    }
+
+    #[test]
+    fn placeholder_count_matches_between_languages() {
+        for text in Text::ALL {
+            let english = tr(Language::English, text).matches('{').count();
+            let vietnamese = tr(Language::Vietnamese, text).matches('{').count();
+            assert_eq!(
+                english, vietnamese,
+                "{text:?} has a different placeholder count"
+            );
+        }
+    }
+
+    #[test]
+    fn tr_fmt_fills_indexed_placeholders_in_their_own_positions() {
+        let text = tr_fmt(Language::English, Text::UpdateDownloading, &["AAA", "BBB"]);
+        assert!(text.contains("AAA"), "first argument missing: {text}");
+        assert!(text.contains("BBB"), "second argument missing: {text}");
+        assert!(
+            text.find("AAA") < text.find("BBB"),
+            "arguments out of order: {text}"
+        );
+        assert!(!text.contains("{0}") && !text.contains("{1}"));
+    }
+
+    #[test]
+    fn tr_fmt_leaves_placeholder_without_argument_as_is() {
+        let text = tr_fmt(Language::English, Text::UpdateAvailable, &["1.2.0"]);
+        assert!(text.contains("1.2.0"));
+        assert!(
+            text.contains("{1}"),
+            "missing placeholder was dropped: {text}"
+        );
+    }
+
+    #[test]
+    fn tr_fmt_ignores_extra_argument() {
+        let with_extra = tr_fmt(
+            Language::English,
+            Text::UpdateAvailable,
+            &["1.2.0", "45.5", "EXTRA"],
+        );
+        let without = tr_fmt(Language::English, Text::UpdateAvailable, &["1.2.0", "45.5"]);
+        assert_eq!(with_extra, without);
+        assert!(!with_extra.contains("EXTRA"));
+    }
+
+    #[test]
+    fn tr_fmt_does_not_expand_placeholders_inside_arguments() {
+        let text = tr_fmt(Language::English, Text::UpdateAvailable, &["{1}", "45.5"]);
+        assert_eq!(
+            text.matches("45.5").count(),
+            1,
+            "argument was re-expanded: {text}"
+        );
+        assert_eq!(
+            text.matches("{1}").count(),
+            1,
+            "argument was re-expanded: {text}"
+        );
+    }
+
+    #[test]
+    fn needs_language_choice_when_unset() {
+        assert!(Settings::default().needs_language_choice());
+        let chosen = Settings {
+            language: Some(Language::Vietnamese),
+        };
+        assert!(!chosen.needs_language_choice());
+    }
+
+    #[test]
+    fn language_roundtrips_through_code() {
+        assert_eq!(Language::English.code(), "en");
+        assert_eq!(Language::Vietnamese.code(), "vi");
+        assert_eq!(Language::from_code("en"), Some(Language::English));
+        assert_eq!(Language::from_code("vi"), Some(Language::Vietnamese));
+        assert_eq!(Language::from_code("EN"), None);
+        assert_eq!(Language::from_code("fr"), None);
+        assert_eq!(Language::from_code(""), None);
+    }
+}
