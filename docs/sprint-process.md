@@ -39,6 +39,7 @@ Release: v0.1.0, then v0.1.1 to prove the update. Status: `todo`.
 | # | Work | Status |
 |---|------|--------|
 | 1.1 | Cargo workspace; empty GPUI window builds on three OS | todo |
+| 1.1b | Architecture map and placement rules (`docs/architecture.md`) and `cargo xtask check-structure` (crate dependency direction, forbidden names, file and folder size, map must match the real tree) | todo |
 | 1.2 | Lock GPUI and GPUI Kit versions | todo |
 | 1.3 | Player spike (4 candidates, real playback with sound, thumbnails strip, FFmpeg in background) | todo |
 | 1.4 | Dev and production channel split | todo |

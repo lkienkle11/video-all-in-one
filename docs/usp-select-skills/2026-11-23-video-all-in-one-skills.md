@@ -48,9 +48,24 @@
 ## STEP 4 (proposed, not yet confirmed):
 - subagent-driven-development
 - diff-type-subagents
+- dispatching-parallel-agents
+- using-git-worktrees
 - test-driven-development
+- proptest-praxis
 - rust
-- gpui-kit
+- rust-async-patterns
+- structure-codebase
+- sqlite
 - durable-local-jobs
 - media-pipeline-engineering
+- ffmpeg
+- gpui-kit
+- gpui-kit-design-guides
+- gpui-video-timeline
 - security-and-hardening
+- observability-and-instrumentation
+- web-research
+- workflow-mapping
+- systematic-debugging
+- refactoring
+- verification-before-completion
