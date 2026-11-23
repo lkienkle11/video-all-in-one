@@ -1,5 +1,7 @@
+mod check_release;
 mod check_structure;
 mod lang_share;
+mod set_version;
 mod structure_map;
 
 use anyhow::{bail, Context, Result};
@@ -22,12 +24,23 @@ enum Command {
         #[arg(long, required = true)]
         write: bool,
     },
+    SetVersion {
+        version: String,
+    },
+    CheckRelease {
+        #[arg(long)]
+        tag: String,
+        #[arg(long)]
+        latest: String,
+    },
 }
 
 fn main() -> Result<()> {
     let root = std::env::current_dir()?;
     match Cli::parse().command {
         Command::LangShare { min } => lang_share::run(&root, min),
+        Command::SetVersion { version } => set_version::set_version(&root, &version),
+        Command::CheckRelease { tag, latest } => check_release::check_release(&root, &tag, &latest),
         Command::CheckStructure => {
             let output = std::process::Command::new("cargo")
                 .args(["metadata", "--format-version", "1", "--no-deps"])
