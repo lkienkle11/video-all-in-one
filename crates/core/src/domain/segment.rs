@@ -194,6 +194,84 @@ mod tests {
         );
     }
 
+    #[test]
+    fn contained_segment_is_absorbed() {
+        assert_eq!(
+            normalize(&[seg(0, 100), seg(10, 20)], TimeMs(1_000)),
+            Ok(vec![seg(0, 100)])
+        );
+        assert_eq!(
+            normalize(&[seg(10, 20), seg(0, 100)], TimeMs(1_000)),
+            Ok(vec![seg(0, 100)])
+        );
+    }
+
+    #[test]
+    fn any_segment_beyond_the_duration_fails_the_whole_call() {
+        assert_eq!(
+            normalize(&[seg(0, 10), seg(1_500, 2_000)], TimeMs(1_000)),
+            Err(SegmentError::BeyondDuration)
+        );
+    }
+
+    #[test]
+    fn zero_length_segment_beyond_the_duration_is_dropped_not_an_error() {
+        assert_eq!(
+            normalize(&[seg(2_000, 2_000), seg(100, 200)], TimeMs(1_000)),
+            Ok(vec![seg(100, 200)])
+        );
+    }
+
+    #[test]
+    fn reversed_segment_is_reported_before_the_duration_check() {
+        assert_eq!(
+            normalize(&[seg(2_000, 1_500)], TimeMs(1_000)),
+            Err(SegmentError::StartAfterEnd)
+        );
+    }
+
+    #[test]
+    fn reversed_segment_among_valid_ones_is_reported() {
+        assert_eq!(
+            normalize(&[seg(0, 10), seg(30, 20)], TimeMs(1_000)),
+            Err(SegmentError::StartAfterEnd)
+        );
+        assert_eq!(
+            normalize(&[seg(30, 20), seg(0, 10)], TimeMs(1_000)),
+            Err(SegmentError::StartAfterEnd)
+        );
+    }
+
+    #[test]
+    fn end_exactly_at_the_duration_is_unchanged() {
+        assert_eq!(
+            normalize(&[seg(500, 1_000)], TimeMs(1_000)),
+            Ok(vec![seg(500, 1_000)])
+        );
+    }
+
+    #[test]
+    fn identical_duplicates_collapse_to_one() {
+        assert_eq!(
+            normalize(&[seg(5, 10), seg(5, 10)], TimeMs(1_000)),
+            Ok(vec![seg(5, 10)])
+        );
+    }
+
+    #[test]
+    fn single_segment_is_returned_unchanged() {
+        assert_eq!(
+            normalize(&[seg(5, 10)], TimeMs(1_000)),
+            Ok(vec![seg(5, 10)])
+        );
+    }
+
+    #[test]
+    fn len_ms_saturates_at_zero_for_reversed_segment() {
+        assert_eq!(seg(10, 30).len_ms(), 20);
+        assert_eq!(seg(30, 10).len_ms(), 0);
+    }
+
     fn segment_strategy() -> impl Strategy<Value = Segment> {
         (0u64..=1_000, 0u64..=1_000).prop_map(|(a, b)| {
             let (start, end) = if a <= b { (a, b) } else { (b, a) };
@@ -205,7 +283,7 @@ mod tests {
         #[test]
         fn output_is_sorted_disjoint_and_within_duration(
             segments in prop::collection::vec(segment_strategy(), 0..=12),
-            duration in 0u64..=1_000_000,
+            duration in prop_oneof![0u64..=1_200, 0u64..=1_000_000],
         ) {
             if let Ok(out) = normalize(&segments, TimeMs(duration)) {
                 for s in &out {
@@ -222,18 +300,47 @@ mod tests {
         #[test]
         fn normalize_is_idempotent(
             segments in prop::collection::vec(segment_strategy(), 0..=12),
-            duration in 0u64..=1_000_000,
+            duration in prop_oneof![0u64..=1_200, 0u64..=1_000_000],
         ) {
             if let Ok(once) = normalize(&segments, TimeMs(duration)) {
                 let twice = normalize(&once, TimeMs(duration));
                 prop_assert_eq!(twice, Ok(once));
             }
         }
-    }
 
-    #[test]
-    fn len_ms_saturates_at_zero_for_reversed_segment() {
-        assert_eq!(seg(10, 30).len_ms(), 20);
-        assert_eq!(seg(30, 10).len_ms(), 0);
+        #[test]
+        fn output_covers_exactly_the_union_of_the_clamped_inputs(
+            segments in prop::collection::vec(segment_strategy(), 0..=12),
+            duration in 0u64..=1_200,
+        ) {
+            prop_assume!(segments.iter().any(|s| s.len_ms() > 0));
+            prop_assume!(segments.iter().all(|s| s.len_ms() == 0 || s.start().0 < duration));
+            let out = normalize(&segments, TimeMs(duration))
+                .map_err(|e| TestCaseError::fail(e.to_string()))?;
+
+            let dur = duration as usize;
+            let mut expected = vec![false; dur];
+            for s in &segments {
+                let from = s.start().0.min(duration) as usize;
+                let to = s.end().0.min(duration) as usize;
+                for slot in &mut expected[from..to] {
+                    *slot = true;
+                }
+            }
+            let mut actual = vec![false; dur];
+            for s in &out {
+                for slot in &mut actual[s.start().0 as usize..s.end().0 as usize] {
+                    *slot = true;
+                }
+            }
+            prop_assert_eq!(&actual, &expected);
+
+            let runs = expected
+                .iter()
+                .enumerate()
+                .filter(|&(i, &v)| v && (i == 0 || !expected[i - 1]))
+                .count();
+            prop_assert_eq!(out.len(), runs);
+        }
     }
 }
