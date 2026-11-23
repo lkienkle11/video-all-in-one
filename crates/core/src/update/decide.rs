@@ -23,6 +23,9 @@ pub enum UpdateDecision {
 
 /// Decides what to offer. An equal or lower version is never offered.
 pub fn decide(current: &Version, manifest: &Manifest, platform_key: &str) -> UpdateDecision {
+    if !manifest.version.pre.is_empty() {
+        return UpdateDecision::UpToDate;
+    }
     if manifest.version <= *current {
         return UpdateDecision::UpToDate;
     }

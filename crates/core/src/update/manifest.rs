@@ -3,8 +3,13 @@
 use std::collections::BTreeMap;
 use std::fmt;
 
+use base64::Engine;
 use semver::Version;
 use serde::Deserialize;
+
+/// The largest artifact size the app accepts: 4 GiB, in bytes. A manifest that
+/// declares a bigger asset is refused, so a hostile size cannot drive a huge download.
+pub const MAX_ASSET_SIZE_BYTES: u64 = 4_294_967_296;
 
 /// A parsed schema 1 update manifest.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -74,14 +79,18 @@ fn validate_asset(platform: &str, asset: &Asset) -> Result<(), ManifestError> {
     if asset.size == 0 {
         return Err(invalid(platform, "size is zero"));
     }
+    if asset.size > MAX_ASSET_SIZE_BYTES {
+        return Err(invalid(platform, "size is above the 4 GiB limit"));
+    }
     if !is_lower_hex_sha256(&asset.sha256) {
         return Err(invalid(
             platform,
             "sha256 is not 64 lowercase hex characters",
         ));
     }
-    if !is_canonical_base64_of_len(&asset.signature, 64) {
-        return Err(invalid(platform, "signature is not base64 of 64 bytes"));
+    match base64::engine::general_purpose::STANDARD.decode(&asset.signature) {
+        Ok(bytes) if bytes.len() == 64 => {}
+        _ => return Err(invalid(platform, "signature is not base64 of 64 bytes")),
     }
     Ok(())
 }
@@ -95,42 +104,4 @@ fn is_lower_hex_sha256(text: &str) -> bool {
         && text
             .bytes()
             .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
-}
-
-/// Checks standard padded base64 that decodes to exactly `byte_len` bytes and has
-/// zero unused bits, so only the one canonical spelling is accepted. Core has no
-/// base64 dependency; the platform crate performs the full decode when it verifies.
-fn is_canonical_base64_of_len(text: &str, byte_len: usize) -> bool {
-    let remainder = byte_len % 3;
-    let padding = match remainder {
-        0 => 0,
-        1 => 2,
-        _ => 1,
-    };
-    let encoded_len = byte_len.div_ceil(3) * 4;
-    let bytes = text.as_bytes();
-    if bytes.len() != encoded_len {
-        return false;
-    }
-    let (body, pad) = bytes.split_at(encoded_len - padding);
-    if !pad.iter().all(|&byte| byte == b'=') || !body.iter().all(|&b| base64_value(b).is_some()) {
-        return false;
-    }
-    match (remainder, body.last()) {
-        (0, _) => true,
-        (1, Some(&last)) => base64_value(last).is_some_and(|value| value & 0x0F == 0),
-        (2, Some(&last)) => base64_value(last).is_some_and(|value| value & 0x03 == 0),
-        _ => false,
-    }
-}
-
-fn base64_value(byte: u8) -> Option<u8> {
-    match byte {
-        b'A'..=b'Z' => Some(byte - b'A'),
-        b'a'..=b'z' => Some(byte - b'a' + 26),
-        b'0'..=b'9' => Some(byte - b'0' + 52),
-        b'+' => Some(62),
-        b'/' => Some(63),
-        _ => None,
-    }
 }

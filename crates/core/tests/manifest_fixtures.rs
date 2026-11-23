@@ -138,4 +138,68 @@ mod update {
             Err(ManifestError::Invalid(_))
         ));
     }
+
+    #[test]
+    fn prerelease_version_is_never_offered() {
+        let prerelease = VALID.replace("\"version\": \"0.1.1\"", "\"version\": \"0.2.0-alpha.1\"");
+        let manifest = parse_manifest(&prerelease).expect("a pre-release manifest parses");
+        assert_eq!(
+            decide(&version("0.1.0"), &manifest, "macos-aarch64"),
+            UpdateDecision::UpToDate
+        );
+
+        let build_metadata =
+            VALID.replace("\"version\": \"0.1.1\"", "\"version\": \"0.2.0+build5\"");
+        let manifest = parse_manifest(&build_metadata).expect("build metadata parses");
+        assert!(matches!(
+            decide(&version("0.1.0"), &manifest, "macos-aarch64"),
+            UpdateDecision::Available { .. }
+        ));
+    }
+
+    #[test]
+    fn size_above_four_gib_is_invalid() {
+        let text = VALID.replace("\"size\": 12345", "\"size\": 4294967297");
+        assert!(matches!(
+            parse_manifest(&text),
+            Err(ManifestError::Invalid(_))
+        ));
+    }
+
+    #[test]
+    fn size_at_four_gib_is_accepted() {
+        let text = VALID.replace("\"size\": 12345", "\"size\": 4294967296");
+        assert!(parse_manifest(&text).is_ok());
+    }
+
+    #[test]
+    fn invalid_semver_version_is_invalid() {
+        let text = VALID.replace("\"version\": \"0.1.1\"", "\"version\": \"not.a.version\"");
+        assert!(matches!(
+            parse_manifest(&text),
+            Err(ManifestError::Invalid(_))
+        ));
+    }
+
+    #[test]
+    fn sixty_four_non_hex_characters_are_invalid() {
+        let text = VALID.replace(EMPTY_SHA256, &"g".repeat(64));
+        assert!(matches!(
+            parse_manifest(&text),
+            Err(ManifestError::Invalid(_))
+        ));
+    }
+
+    #[test]
+    fn base64_signature_with_nonzero_trailing_bits_is_invalid() {
+        // The 88-character signature ends in two data characters' worth of padding:
+        // the last data character before "==" carries 4 unused bits. 'B' sets one.
+        let non_canonical = format!("{}B==", &VALID_SIGNATURE[..85]);
+        assert_eq!(non_canonical.len(), 88);
+        let text = VALID.replace(VALID_SIGNATURE, &non_canonical);
+        assert!(matches!(
+            parse_manifest(&text),
+            Err(ManifestError::Invalid(_))
+        ));
+    }
 }

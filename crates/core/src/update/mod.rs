@@ -4,4 +4,4 @@ mod decide;
 mod manifest;
 
 pub use decide::{decide, UpdateDecision};
-pub use manifest::{parse_manifest, Asset, Manifest, ManifestError};
+pub use manifest::{parse_manifest, Asset, Manifest, ManifestError, MAX_ASSET_SIZE_BYTES};

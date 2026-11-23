@@ -148,4 +148,22 @@ mod tests {
         let result = verify_artifact(d, &hex(&d), &signature, &not_a_point);
         assert_eq!(result, Err(VerifyError::Malformed));
     }
+
+    #[test]
+    fn signature_with_one_flipped_bit_is_bad_signature() {
+        let d = digest(ARTIFACT);
+        let mut signature = SigningKey::from_bytes(&SECRET).sign(&d).to_bytes();
+        signature[0] ^= 0x01;
+        let encoded = base64::engine::general_purpose::STANDARD.encode(signature);
+        let result = verify_artifact(d, &hex(&d), &encoded, &public_key(&SECRET));
+        assert_eq!(result, Err(VerifyError::BadSignature));
+    }
+
+    #[test]
+    fn all_zero_public_key_is_rejected() {
+        let d = digest(ARTIFACT);
+        let signature = sign_b64(&SECRET, &d);
+        let result = verify_artifact(d, &hex(&d), &signature, &[0u8; 32]);
+        assert_eq!(result, Err(VerifyError::BadSignature));
+    }
 }
