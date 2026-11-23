@@ -1,7 +1,11 @@
+mod changelog;
 mod check_release;
 mod check_structure;
 mod keygen;
 mod lang_share;
+mod latest_json;
+#[cfg(test)]
+mod latest_json_tests;
 mod set_version;
 mod sign;
 mod structure_map;
@@ -44,6 +48,18 @@ enum Command {
         #[arg(long)]
         file: PathBuf,
     },
+    LatestJson {
+        #[arg(long)]
+        version: String,
+        #[arg(long)]
+        notes: PathBuf,
+        #[arg(long)]
+        assets: PathBuf,
+        #[arg(long)]
+        base_url: String,
+        #[arg(long)]
+        out: Option<PathBuf>,
+    },
 }
 
 fn main() -> Result<()> {
@@ -54,6 +70,13 @@ fn main() -> Result<()> {
         Command::CheckRelease { tag, latest } => check_release::check_release(&root, &tag, &latest),
         Command::Keygen { out } => keygen::run(&out),
         Command::Sign { file } => sign::run(&file),
+        Command::LatestJson {
+            version,
+            notes,
+            assets,
+            base_url,
+            out,
+        } => latest_json::run(&version, &notes, &assets, &base_url, out.as_deref()),
         Command::CheckStructure => {
             let output = std::process::Command::new("cargo")
                 .args(["metadata", "--format-version", "1", "--no-deps"])
