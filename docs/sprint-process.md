@@ -38,11 +38,11 @@ Release: v0.1.0, then v0.1.1 to prove the update. Status: `todo`.
 
 | # | Work | Status |
 |---|------|--------|
-| 1.1 | Cargo workspace; empty GPUI window builds on three OS | todo |
-| 1.1b | Architecture map and placement rules (`docs/architecture.md`) and `cargo xtask check-structure` (crate dependency direction, forbidden names, file and folder size, map must match the real tree) | todo |
-| 1.2 | Lock GPUI and GPUI Kit versions | todo |
+| 1.1 | Cargo workspace; empty GPUI window builds on three OS | done |
+| 1.1b | Architecture map and placement rules (`docs/architecture.md`) and `cargo xtask check-structure` (crate dependency direction, forbidden names, file and folder size, map must match the real tree) | done |
+| 1.2 | Lock GPUI and GPUI Kit versions | done |
 | 1.3 | Player spike (4 candidates, real playback with sound, thumbnails strip, FFmpeg in background) | todo |
-| 1.4 | Dev and production channel split | todo |
+| 1.4 | Dev and production channel split | in progress (code and tests done; build and release switch in 1R-b) |
 | 1.5 | `set-version` and tag checks (Rust `xtask`) | todo |
 | 1.6 | Signing key pair and GitHub Secrets | todo |
 | 1.7 | Release workflow and `latest.json` | todo |
@@ -50,7 +50,7 @@ Release: v0.1.0, then v0.1.1 to prove the update. Status: `todo`.
 | 1.9 | Settings: version and update states, update dialog | todo |
 | 1.10 | Bilingual CHANGELOG and `docs/RELEASING.md` | todo |
 | 1.11 | CI on three OS plus the 85% Rust check | todo |
-| 1.12 | Localization layer, language modal on first launch, language setting, shared modal behavior | todo |
+| 1.12 | Localization layer, language modal on first launch, language setting, shared modal behavior | in progress (string tables and settings model done; modal, picker and Settings screen in Task 9) |
 | 1.13 | English `README.md` | todo |
 | 1.14 | GitHub About (description, topics), with permission | todo |
 
@@ -68,7 +68,7 @@ Release: v0.2.0. Status: `todo`.
 | 2.4 | Persistent Job Queue (S02): states, transitions, persist before run, recover after restart, retry, cancel, limits | todo |
 | 2.5 | Source analysis with FFprobe | todo |
 | 2.6 | Workspace shell: toolbar, sources, preview, inspector, timeline placeholder, job queue panel | todo |
-| 2.7 | Local Video Cutting (F01) with segment normalization | todo |
+| 2.7 | Local Video Cutting (F01) with segment normalization | in progress (time parsing and segment normalization done) |
 | 2.8 | Multi-Segment Export (F08): separate or merged, Fast and Precise cut, export verification | todo |
 | 2.9 | Basic Batch (S01) | todo |
 
