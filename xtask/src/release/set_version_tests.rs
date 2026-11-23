@@ -1,4 +1,4 @@
-use crate::set_version::{fixture::Fixture, set_version};
+use crate::release::set_version::{fixture::Fixture, set_version};
 use std::fs;
 
 const CARGO: &str = "[workspace]\nmembers = [\"a\", \"b\", \"c\"]\n\n[workspace.package]\nversion = \"0.0.0\"\nedition = \"2021\"\n";

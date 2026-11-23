@@ -86,7 +86,7 @@ fn sig_path_for(path: &Path) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::sign_file;
-    use crate::set_version::fixture::Fixture;
+    use crate::release::set_version::fixture::Fixture;
     use base64::Engine;
     use ed25519_dalek::SigningKey;
     use sha2::{Digest, Sha256};

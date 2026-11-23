@@ -45,4 +45,5 @@ crates/platform/src/update | Verifies downloaded update artifacts against their 
 crates/storage | Implements persistent storage for application data.
 xtask | Provides workspace maintenance and release commands.
 xtask/src/check_structure | Checks workspace dependencies, source placement, and the architecture map.
+xtask/src/release | Release commands: versioning, update signing keys and signatures, and the update manifest.
 <!-- structure-map:end -->

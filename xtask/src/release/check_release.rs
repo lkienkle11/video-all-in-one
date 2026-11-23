@@ -1,4 +1,4 @@
-use crate::set_version::{lock_members, plain_version, workspace_version};
+use crate::release::set_version::{lock_members, plain_version, workspace_version};
 use anyhow::{bail, Context, Result};
 use std::fs;
 use std::path::Path;
@@ -50,7 +50,7 @@ pub fn check_release(root: &Path, tag: &str, latest: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::check_release;
-    use crate::set_version::fixture::Fixture;
+    use crate::release::set_version::fixture::Fixture;
     use std::fs;
 
     fn repo(workspace: &str, member_b: &str) -> Fixture {

@@ -1,9 +1,9 @@
-use crate::latest_json::{build_manifest, decode_public_key};
-use crate::latest_json_tests::{
+use crate::release::latest_json::{build_manifest, decode_public_key};
+use crate::release::latest_json_tests::{
     artifact, build, full_set, notes, public_key, signed_artifact, ARTIFACTS, BASE, OTHER_SEED,
     SEED, VERSION,
 };
-use crate::set_version::fixture::Fixture;
+use crate::release::set_version::fixture::Fixture;
 use base64::Engine;
 use std::fs;
 use std::path::Path;

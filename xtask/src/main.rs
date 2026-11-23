@@ -1,21 +1,11 @@
-mod changelog;
-mod check_release;
 mod check_structure;
-mod keygen;
 mod lang_share;
-mod latest_json;
-#[cfg(test)]
-mod latest_json_policy_tests;
-#[cfg(test)]
-mod latest_json_tests;
-mod set_version;
-#[cfg(test)]
-mod set_version_tests;
-mod sign;
+mod release;
 mod structure_map;
 
 use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
+use release::{check_release, keygen, latest_json, set_version, sign};
 use std::path::PathBuf;
 
 #[derive(Parser)]

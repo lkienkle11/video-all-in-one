@@ -89,7 +89,7 @@ fn rust_literal(public_key: &[u8; 32]) -> String {
 #[cfg(test)]
 mod tests {
     use super::keygen;
-    use crate::set_version::fixture::Fixture;
+    use crate::release::set_version::fixture::Fixture;
     use base64::Engine;
     use ed25519_dalek::SigningKey;
     use std::fs;

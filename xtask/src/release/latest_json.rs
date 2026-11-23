@@ -1,5 +1,5 @@
-use crate::changelog::{read_notes, Notes};
-use crate::set_version::plain_version;
+use crate::release::changelog::{read_notes, Notes};
+use crate::release::set_version::plain_version;
 use anyhow::{anyhow, bail, Context, Result};
 use base64::Engine;
 use sha2::{Digest, Sha256};

@@ -1,6 +1,6 @@
-use crate::changelog::{read_notes, Notes, VIETNAMESE_TITLE};
-use crate::latest_json::{add_unique, build_manifest, run};
-use crate::set_version::fixture::Fixture;
+use crate::release::changelog::{read_notes, Notes, VIETNAMESE_TITLE};
+use crate::release::latest_json::{add_unique, build_manifest, run};
+use crate::release::set_version::fixture::Fixture;
 use base64::Engine;
 use ed25519_dalek::{Signer, SigningKey};
 use sha2::{Digest, Sha256};
