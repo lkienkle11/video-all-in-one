@@ -54,4 +54,11 @@ pub trait JobStore {
 
     /// Marks every `Running` job `Failed` with the reason `interrupted` and returns their identifiers.
     fn recover_interrupted(&self) -> Result<Vec<JobId>, StoreError>;
+
+    /// Takes the queued job with the lowest identifier and marks it `Running` in one atomic step.
+    /// Returns the updated job, or `None` when no job is queued.
+    fn claim_next(&self) -> Result<Option<StoredJob>, StoreError>;
+
+    /// Returns every job in `state`, ordered by identifier ascending.
+    fn list_by_state(&self, state: JobState) -> Result<Vec<StoredJob>, StoreError>;
 }

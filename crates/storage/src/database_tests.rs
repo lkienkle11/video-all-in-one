@@ -186,6 +186,19 @@ fn foreign_database_without_version_is_refused() {
 }
 
 #[test]
+fn busy_timeout_is_set_before_the_schema_check() {
+    let dir = TempDir::new("busy-timeout");
+    let database = Database::open(&dir.database()).expect("open");
+
+    let busy_timeout: i64 = database
+        .connection()
+        .query_row("PRAGMA busy_timeout", [], |row| row.get(0))
+        .expect("read the busy timeout");
+
+    assert_eq!(busy_timeout, 5000);
+}
+
+#[test]
 fn wal_mode_is_active_and_foreign_keys_are_on() {
     let dir = TempDir::new("wal");
     let database = Database::open(&dir.database()).expect("open");
@@ -201,4 +214,31 @@ fn wal_mode_is_active_and_foreign_keys_are_on() {
 
     assert_eq!(mode, "wal");
     assert_eq!(foreign_keys, 1);
+}
+
+#[test]
+fn open_waits_for_a_busy_database_instead_of_failing_at_once() {
+    // A rollback-journal database whose file is locked exclusively by another connection:
+    // reading the schema version needs a shared lock, so `open` must wait for the busy timeout
+    // that is set right after the file is opened.
+    let dir = TempDir::new("busy-open");
+    let path = dir.database();
+    seed_v1_with_job(&path);
+    {
+        let conn = Connection::open(&path).expect("open for the journal switch");
+        conn.pragma_update(None, "journal_mode", "DELETE")
+            .expect("switch to the rollback journal");
+    }
+    let blocker = Connection::open(&path).expect("open the blocking connection");
+    blocker
+        .execute_batch("BEGIN EXCLUSIVE")
+        .expect("take the exclusive lock");
+    let opener = std::thread::spawn({
+        let path = path.clone();
+        move || Database::open_with(&path, &MIGRATIONS[..1], clock_1000).map(|_| ())
+    });
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    blocker.execute_batch("COMMIT").expect("release the lock");
+    let result = opener.join().expect("the opener thread must not panic");
+    assert!(result.is_ok(), "open should have waited: {result:?}");
 }

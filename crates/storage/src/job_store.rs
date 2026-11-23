@@ -2,7 +2,7 @@
 
 use std::sync::{Mutex, MutexGuard};
 
-use rusqlite::{params, Connection, TransactionBehavior};
+use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
 use vaio_core::domain::job::{JobId, JobKind, JobState};
 use vaio_core::ports::{JobStore, StoreError, StoredJob};
 
@@ -125,5 +125,51 @@ impl JobStore for SqliteJobStore {
         .map_err(backend)?;
         tx.commit().map_err(backend)?;
         Ok(ids.into_iter().map(JobId).collect())
+    }
+
+    fn claim_next(&self) -> Result<Option<StoredJob>, StoreError> {
+        let mut conn = self.lock()?;
+        let tx = conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(backend)?;
+        let next: Option<i64> = tx
+            .query_row(
+                "SELECT id FROM jobs WHERE state = ?1 ORDER BY id ASC LIMIT 1",
+                [state_text(JobState::Queued)],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(backend)?;
+        let Some(id) = next else {
+            return Ok(None);
+        };
+        let mut stored = load(&tx, JobId(id))?;
+        stored
+            .job
+            .transition(JobState::Running, None)
+            .map_err(StoreError::InvalidTransition)?;
+        let now = (self.now_ms)();
+        tx.execute(
+            "UPDATE jobs SET state = ?1, error = NULL, updated_at_ms = ?2 WHERE id = ?3",
+            params![state_text(stored.job.state()), now, id],
+        )
+        .map_err(backend)?;
+        tx.commit().map_err(backend)?;
+        stored.updated_at_ms = now;
+        Ok(Some(stored))
+    }
+
+    fn list_by_state(&self, state: JobState) -> Result<Vec<StoredJob>, StoreError> {
+        let conn = self.lock()?;
+        let sql = format!("{SELECT_JOBS} WHERE state = ?1 ORDER BY id ASC");
+        let mut stmt = conn.prepare(&sql).map_err(backend)?;
+        let rows = stmt
+            .query_map([state_text(state)], JobRow::read)
+            .map_err(backend)?;
+        let mut jobs = Vec::new();
+        for row in rows {
+            jobs.push(row.map_err(backend)?.into_stored()?);
+        }
+        Ok(jobs)
     }
 }

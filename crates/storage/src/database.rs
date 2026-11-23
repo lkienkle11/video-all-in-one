@@ -1,13 +1,16 @@
 //! The database file: opening it, checking its schema version and migrating it.
 
 use std::path::Path;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use rusqlite::{Connection, TransactionBehavior};
 
 use crate::backup::write_backup;
 use crate::error::{sqlite, StorageError};
 use crate::migrations::{Migration, MIGRATIONS};
+
+/// How long a connection waits for a lock held by another connection before it fails.
+const BUSY_TIMEOUT: Duration = Duration::from_millis(5000);
 
 /// An open database file, migrated to the supported schema and set up for WAL.
 pub struct Database {
@@ -29,7 +32,9 @@ impl Database {
         now_ms: fn() -> i64,
     ) -> Result<Database, StorageError> {
         let mut conn = Connection::open(path).map_err(sqlite)?;
-        // The version is read before any other pragma, so a newer file is refused untouched.
+        // A connection setting, not a file write: set before any read so a locked file waits.
+        conn.busy_timeout(BUSY_TIMEOUT).map_err(sqlite)?;
+        // The version is read before any write, so a newer file is refused untouched.
         let found: i64 = conn
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .map_err(sqlite)?;
@@ -43,11 +48,11 @@ impl Database {
         if found == 0 && has_tables(&conn)? {
             return Err(StorageError::ForeignDatabase);
         }
+        configure(&conn)?;
         if found > 0 && found < highest {
             write_backup(&conn, path, found)?;
         }
         apply_migrations(&mut conn, migrations, found)?;
-        configure(&conn)?;
         Ok(Database { conn, now_ms })
     }
 
@@ -95,6 +100,7 @@ fn apply_migrations(
 }
 
 /// Sets the persistent WAL mode and the connection settings, reading back what must hold.
+/// Runs after the schema checks and before the backup and the migrations.
 fn configure(conn: &Connection) -> Result<(), StorageError> {
     let mode: String = conn
         .query_row("PRAGMA journal_mode = WAL", [], |row| row.get(0))
@@ -104,10 +110,8 @@ fn configure(conn: &Connection) -> Result<(), StorageError> {
             "journal mode is {mode}, expected wal"
         )));
     }
-    conn.execute_batch(
-        "PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000; PRAGMA synchronous = NORMAL;",
-    )
-    .map_err(sqlite)?;
+    conn.execute_batch("PRAGMA foreign_keys = ON; PRAGMA synchronous = NORMAL;")
+        .map_err(sqlite)?;
     let foreign_keys: i64 = conn
         .query_row("PRAGMA foreign_keys", [], |row| row.get(0))
         .map_err(sqlite)?;

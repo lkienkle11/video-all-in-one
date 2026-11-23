@@ -1,6 +1,8 @@
 //! SQLite persistence for Video All-in-One: the database file, its schema migrations and the job store.
 
 mod backup;
+#[cfg(test)]
+mod claim_tests;
 mod database;
 #[cfg(test)]
 mod database_tests;

@@ -203,6 +203,37 @@ fn sql_injection_in_the_payload_is_stored_as_text() {
 }
 
 #[test]
+fn ids_are_not_reused_after_deleting_the_last_row() {
+    let dir = TempDir::new("ids-not-reused");
+    let store = store_at(&dir.database(), clock_1000);
+    store
+        .insert(JobKind::Cut, "{}")
+        .expect("insert the first job");
+    let deleted = store
+        .insert(JobKind::Cut, "{}")
+        .expect("insert the second job");
+    {
+        let conn = Connection::open(dir.database()).expect("open a second connection");
+        conn.execute("DELETE FROM jobs WHERE id = ?1", [deleted.0])
+            .expect("delete the highest id");
+    }
+
+    let next = store.insert(JobKind::Cut, "{}").expect("insert again");
+
+    assert!(next.0 > deleted.0, "id {} was reused", next.0);
+}
+
+#[test]
+fn one_megabyte_payload_round_trips() {
+    let dir = TempDir::new("big-payload");
+    let store = store_at(&dir.database(), clock_1000);
+    let payload = "x".repeat(1_000_000);
+    let id = store.insert(JobKind::Download, &payload).expect("insert");
+
+    assert_eq!(store.get(id).expect("get").payload, payload);
+}
+
+#[test]
 fn unknown_stored_state_is_a_backend_error() {
     let dir = TempDir::new("unknown-state");
     let store = store_at(&dir.database(), clock_1000);
