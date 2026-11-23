@@ -1,11 +1,14 @@
 mod check_release;
 mod check_structure;
+mod keygen;
 mod lang_share;
 mod set_version;
+mod sign;
 mod structure_map;
 
 use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
+use std::path::PathBuf;
 
 #[derive(Parser)]
 struct Cli {
@@ -33,6 +36,14 @@ enum Command {
         #[arg(long)]
         latest: String,
     },
+    Keygen {
+        #[arg(long)]
+        out: PathBuf,
+    },
+    Sign {
+        #[arg(long)]
+        file: PathBuf,
+    },
 }
 
 fn main() -> Result<()> {
@@ -41,6 +52,8 @@ fn main() -> Result<()> {
         Command::LangShare { min } => lang_share::run(&root, min),
         Command::SetVersion { version } => set_version::set_version(&root, &version),
         Command::CheckRelease { tag, latest } => check_release::check_release(&root, &tag, &latest),
+        Command::Keygen { out } => keygen::run(&out),
+        Command::Sign { file } => sign::run(&file),
         Command::CheckStructure => {
             let output = std::process::Command::new("cargo")
                 .args(["metadata", "--format-version", "1", "--no-deps"])
