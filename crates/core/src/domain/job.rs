@@ -10,18 +10,26 @@ pub struct JobId(pub i64);
 /// What a job does.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum JobKind {
+    /// Cuts a section out of a source file.
     Cut,
+    /// Joins several files into one.
     Merge,
+    /// Fetches a segment of an online source.
     Download,
 }
 
 /// Where a job is in its lifecycle.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum JobState {
+    /// Waiting to start.
     Queued,
+    /// Currently executing.
     Running,
+    /// Finished without error.
     Succeeded,
+    /// Stopped with an error; may be retried.
     Failed,
+    /// Stopped by the user before it finished.
     Cancelled,
 }
 
@@ -76,14 +84,17 @@ impl Job {
         }
     }
 
+    /// The queue identifier of this job.
     pub fn id(&self) -> JobId {
         self.id
     }
 
+    /// What this job does.
     pub fn kind(&self) -> JobKind {
         self.kind
     }
 
+    /// The current lifecycle state.
     pub fn state(&self) -> JobState {
         self.state
     }

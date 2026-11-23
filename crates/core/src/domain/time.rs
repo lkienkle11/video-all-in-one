@@ -58,8 +58,9 @@ impl TimeMs {
 
     /// Parses `HH:MM:SS`, `HH:MM:SS.mmm`, `MM:SS`, `MM:SS.mmm`, `SS` or `SS.mmm`.
     ///
-    /// Surrounding spaces are ignored. In the colon forms the minutes and seconds
-    /// fields must be below 60; the leading field may be any size.
+    /// Surrounding spaces are ignored. The seconds field must be below 60 in every
+    /// colon form. The minutes bound applies only when there are three fields
+    /// (`HH:MM:SS`); in the two-field form the leading minutes field may be any size.
     pub fn parse(text: &str) -> Result<TimeMs, TimeParseError> {
         let text = text.trim();
         if text.is_empty() {
@@ -87,10 +88,13 @@ impl TimeMs {
             seconds
         } else {
             let minutes = parse_digits(parts[parts.len() - 2])?;
-            if minutes >= 60 || seconds >= 60 {
+            if seconds >= 60 || (parts.len() == 3 && minutes >= 60) {
                 return Err(TimeParseError::Malformed);
             }
-            let mut total = minutes * 60 + seconds;
+            let mut total = minutes
+                .checked_mul(60)
+                .and_then(|m| m.checked_add(seconds))
+                .ok_or(TimeParseError::OutOfRange)?;
             if parts.len() == 3 {
                 let hours = parse_digits(parts[0])?;
                 total = hours
@@ -170,7 +174,6 @@ mod tests {
         for (text, ms) in cases {
             assert_eq!(text.parse::<TimeMs>(), Ok(TimeMs(ms)), "parsing {text:?}");
         }
-        assert_eq!(TimeMs::parse("1:02:03.4"), Ok(TimeMs(3_723_400)));
     }
 
     #[test]
@@ -208,6 +211,36 @@ mod tests {
         );
         assert_eq!(
             TimeMs::parse("18446744073709552"),
+            Err(TimeParseError::OutOfRange)
+        );
+    }
+
+    #[test]
+    fn time_allows_large_leading_minutes_and_rejects_overflow() {
+        assert_eq!(TimeMs::parse("90:00"), Ok(TimeMs(5_400_000)));
+        assert_eq!(TimeMs::parse("90:00.5"), Ok(TimeMs(5_400_500)));
+        assert_eq!(TimeMs::parse("1:30:00"), Ok(TimeMs(5_400_000)));
+        assert_eq!(
+            TimeMs::parse("01:60"),
+            Err(TimeParseError::Malformed),
+            "seconds 60 in MM:SS"
+        );
+        assert_eq!(
+            TimeMs::parse("00:60:00"),
+            Err(TimeParseError::Malformed),
+            "minutes 60 in HH:MM:SS"
+        );
+        assert_eq!(
+            TimeMs::parse("00:00:60"),
+            Err(TimeParseError::Malformed),
+            "seconds 60 in HH:MM:SS"
+        );
+        assert_eq!(
+            TimeMs::parse("18446744073709551615:00"),
+            Err(TimeParseError::OutOfRange)
+        );
+        assert_eq!(
+            TimeMs::parse("18446744073709551615:59:59"),
             Err(TimeParseError::OutOfRange)
         );
     }
