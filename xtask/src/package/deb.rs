@@ -11,8 +11,9 @@ pub(super) const ICON_PATH: &str = "usr/share/icons/hicolor/512x512/apps/video-a
 
 /// The `DEBIAN/control` text. `installed_kib` is the size of the staged files in KiB.
 pub(super) fn control_file(version: &str, installed_kib: u64) -> String {
-    // libmpv1 is the Ubuntu 22.04 package of libmpv.so.1, the library the release build
-    // links on that runner. ffmpeg is only recommended: the app tells the user when it is missing.
+    // libmpv2 is the Ubuntu 24.04 package of libmpv.so.2 (mpv client API 2), the library the
+    // release build links on that runner; Ubuntu 22.04 only has libmpv1 (API 1), which the app
+    // refuses at run time. ffmpeg is only recommended: the app tells the user when it is missing.
     [
         format!("Package: {BINARY_NAME}"),
         format!("Version: {version}"),
@@ -20,7 +21,7 @@ pub(super) fn control_file(version: &str, installed_kib: u64) -> String {
         "Priority: optional".to_string(),
         "Architecture: amd64".to_string(),
         format!("Installed-Size: {installed_kib}"),
-        "Depends: libmpv1, libc6 (>= 2.35)".to_string(),
+        "Depends: libmpv2, libc6 (>= 2.39)".to_string(),
         "Recommends: ffmpeg".to_string(),
         format!("Maintainer: {APP_NAME} project <noreply@example.invalid>"),
         format!("Description: {APP_NAME}, a desktop app to cut and export videos"),
@@ -140,7 +141,7 @@ mod tests {
         assert_eq!(field(&control, "Architecture"), Some("amd64"));
         assert_eq!(field(&control, "Installed-Size"), Some("30000"));
         let depends = field(&control, "Depends").unwrap();
-        assert!(depends.split(", ").any(|d| d == "libmpv1"), "{depends}");
+        assert!(depends.split(", ").any(|d| d == "libmpv2"), "{depends}");
         assert_eq!(field(&control, "Recommends"), Some("ffmpeg"));
         assert!(
             field(&control, "Maintainer").is_some(),

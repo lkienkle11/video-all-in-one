@@ -2,6 +2,9 @@ use super::{install_error, InstallOutcome};
 use std::{path::Path, process::Command};
 use vaio_core::update::UpdateError;
 
+// Used where no installer can run (other systems, or when pkexec is missing); on some builds it
+// has no caller.
+#[allow(dead_code)]
 pub(super) fn reveal(path: &Path) -> Result<InstallOutcome, UpdateError> {
     let path = path.canonicalize().map_err(install_error)?;
     let status = reveal_command(std::env::consts::OS, &path)
@@ -13,6 +16,7 @@ pub(super) fn reveal(path: &Path) -> Result<InstallOutcome, UpdateError> {
     Ok(InstallOutcome::OpenedInstaller(path))
 }
 
+#[allow(dead_code)]
 pub(super) fn reveal_command(os: &str, path: &Path) -> Command {
     match os {
         "macos" => {

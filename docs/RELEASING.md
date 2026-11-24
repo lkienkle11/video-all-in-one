@@ -105,10 +105,10 @@ If the app cannot install an update itself, it downloads and verifies the file a
 |-------|-------|---------------|
 | GitHub Actions (`actions/checkout`, `cache`, `upload-artifact`, `download-artifact`) | full commit SHA with the version in a comment, in both workflow files | Open the action's release page, copy the tag's commit SHA, replace it in both files |
 | Rust compiler | `RUSTUP_TOOLCHAIN` at the top of both workflow files (overrides `rust-toolchain.toml`, which says `stable`) | Change both to the same new version in one pull request |
-| Runner images | `macos-15`, `macos-15-intel`, `windows-2025`, `ubuntu-22.04` | Change the matrix when a runner is retired |
+| Runner images | `macos-15`, `macos-15-intel`, `windows-2025`, `ubuntu-24.04` | Change the matrix when a runner is retired |
 | libmpv for Windows | `MPV_WIN_URL` and `MPV_WIN_SHA256` in both workflow files; LGPL build of `zhongfly/mpv-winbuild` | Pick a newer release, copy the SHA-256 shown on its page, change both values in both files |
 | libmpv and FFmpeg for macOS | Homebrew, not pinned: `brew install mpv ffmpeg` installs whatever is current | The app bundle contains the libraries of that day. To pin, build mpv and FFmpeg from source or use a fixed bottle (not done) |
-| libmpv for Ubuntu | `libmpv-dev` and `ffmpeg` from Ubuntu 22.04 (libmpv 0.34) | Changes only with Ubuntu updates |
+| libmpv for Ubuntu | `libmpv-dev` and `ffmpeg` from Ubuntu 24.04 (libmpv 0.37, client API 2) | Changes only with Ubuntu updates |
 | FFmpeg, FFprobe, yt-dlp | Not bundled yet. They come from the `PATH` (sprint 4 bundles and pins them with checksums and licence notices) | |
 
 ## Licences
@@ -124,8 +124,8 @@ If the app cannot install an update itself, it downloads and verifies the file a
 ## Known limits
 
 - macOS minimum version: the bundled Homebrew libraries are built for the macOS version of the build machine (macOS 15 on the CI runners). `cargo xtask package` reads the real minimum from every file and writes the highest one into `LSMinimumSystemVersion`, so older systems get a clear refusal instead of a crash. The README therefore promises only a recent macOS. Supporting macOS 13 needs a libmpv built for macOS 13 (a later task).
-- Ubuntu: the package depends on `libmpv1`, which exists on 22.04 only. Ubuntu 24.04 ships `libmpv2` and cannot install this package.
-- The Ubuntu package lists only `libmpv1` and `libc6` as dependencies. The other libraries GPUI loads at run time (Wayland, X11, Vulkan, fontconfig, ALSA) are not declared; the CI step runs `ldd` to catch missing ones on the runner only.
+- Ubuntu: the package depends on `libmpv2` (Ubuntu 24.04). Ubuntu 22.04 has only `libmpv1` (client API 1); the player library the app is built for refuses it at run time (`VersionMismatch`), so 22.04 is not supported until a libmpv is bundled.
+- The Ubuntu package lists only `libmpv2` and `libc6` as dependencies. The other libraries GPUI loads at run time (Wayland, X11, Vulkan, fontconfig, ALSA) are not declared; the CI step runs `ldd` to catch missing ones on the runner only.
 - The `.deb` maintainer address is `noreply@example.invalid` until a real contact exists.
 
 ## What is unproven

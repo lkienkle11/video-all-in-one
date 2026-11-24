@@ -65,6 +65,7 @@ impl PrivateCopy {
 /// Creates a new directory, mode 0700 on unix. Fails if the path already exists,
 /// so an existing directory or symlink is never reused.
 pub(in crate::update) fn create_private_dir(path: &Path) -> io::Result<()> {
+    #[cfg_attr(not(unix), allow(unused_mut))]
     let mut builder = fs::DirBuilder::new();
     #[cfg(unix)]
     {

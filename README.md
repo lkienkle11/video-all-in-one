@@ -32,7 +32,7 @@ Also planned: the app updates itself from GitHub Releases, and the interface is 
 
 - Windows 10 and later.
 - A recent macOS. The packaged app carries its own libraries, so the minimum version is the one of the release's build machine and is stated in each release's notes.
-- Ubuntu 22.04 and later.
+- Ubuntu 24.04 and later (the player needs libmpv with client API 2, which Ubuntu 22.04 does not have; support for 22.04 needs a bundled libmpv).
 
 macOS is the only platform exercised so far.
 

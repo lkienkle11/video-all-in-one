@@ -1,4 +1,6 @@
-use super::{install_error, steps::bundle_rules};
+use super::install_error;
+#[cfg(target_os = "macos")]
+use super::steps::bundle_rules;
 use std::{
     path::{Path, PathBuf},
     process::Command,

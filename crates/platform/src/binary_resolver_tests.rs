@@ -22,6 +22,7 @@ impl TempDir {
         TempDir(path)
     }
 
+    #[allow(dead_code)]
     fn path(&self) -> &Path {
         &self.0
     }

@@ -29,7 +29,7 @@ env:
 jobs:
   verify:
     name: check the tag
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     defaults:
       run:
@@ -93,8 +93,8 @@ jobs:
           - name: windows
             os: windows-2025
             target: windows
-          - name: ubuntu-22.04
-            os: ubuntu-22.04
+          - name: ubuntu-24.04
+            os: ubuntu-24.04
             target: ubuntu
     defaults:
       run:
@@ -129,7 +129,7 @@ jobs:
           brew install mpv ffmpeg
           xcrun metal --version || xcodebuild -downloadComponent MetalToolchain
 
-      # Ubuntu 22.04: libmpv1 0.34 and the libraries GPUI needs to build (list taken from Zed's script/linux).
+      # Ubuntu 24.04: libmpv2 and the libraries GPUI needs to build (list taken from Zed's script/linux).
       - name: Install libmpv, FFmpeg and GPUI build libraries (Ubuntu)
         if: runner.os == 'Linux'
         run: |
@@ -266,7 +266,7 @@ jobs:
   publish:
     name: sign and publish
     needs: [verify, build]
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
       contents: write

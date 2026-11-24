@@ -1,4 +1,6 @@
-use std::{ffi::OsString, path::PathBuf, time::Duration};
+#[cfg(unix)]
+use std::time::Duration;
+use std::{ffi::OsString, path::PathBuf};
 use tokio_util::sync::CancellationToken;
 use vaio_media::process_runner::{run, ProcessSpec, RunError, Stream};
 

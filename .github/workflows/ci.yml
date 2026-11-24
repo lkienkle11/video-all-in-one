@@ -1,4 +1,4 @@
-# Checks every pull request on macOS (Apple Silicon and Intel), Windows and Ubuntu 22.04.
+# Checks every pull request on macOS (Apple Silicon and Intel), Windows and Ubuntu 24.04.
 # The jobs are independent: one failing OS does not cancel or hide the others.
 name: CI
 
@@ -29,13 +29,18 @@ jobs:
   # and not the sum of both. Every job must finish in under 10 minutes on a cold cache.
   check:
     name: ${{ matrix.task }} (${{ matrix.target }})
-    runs-on: ${{ fromJSON('{"macos-apple-silicon":"macos-15","macos-intel":"macos-15-intel","windows":"windows-2025","ubuntu-22.04":"ubuntu-22.04"}')[matrix.target] }}
+    runs-on: ${{ fromJSON('{"macos-apple-silicon":"macos-15","macos-intel":"macos-15-intel","windows":"windows-2025","ubuntu-24.04":"ubuntu-24.04"}')[matrix.target] }}
     timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
-        target: [macos-apple-silicon, macos-intel, windows, ubuntu-22.04]
+        target: [macos-apple-silicon, macos-intel, windows, ubuntu-24.04]
         task: [lint, test]
+        exclude:
+          # The lint result is the same on both Macs, and clippy on the Intel runner alone takes
+          # more than 10 minutes; Intel still runs the tests.
+          - target: macos-intel
+            task: lint
     defaults:
       run:
         shell: bash
@@ -69,7 +74,7 @@ jobs:
           brew install mpv ffmpeg
           xcrun metal --version || xcodebuild -downloadComponent MetalToolchain
 
-      # Ubuntu 22.04: libmpv1 0.34 and the libraries GPUI needs to build (list taken from Zed's script/linux).
+      # Ubuntu 24.04: libmpv2 (mpv client API 2, the one the libmpv2 crate is built for) and the libraries GPUI needs to build (list taken from Zed's script/linux).
       - name: Install libmpv, FFmpeg and GPUI build libraries (Ubuntu)
         if: runner.os == 'Linux'
         run: |
@@ -123,7 +128,7 @@ jobs:
 
       - name: Test
         if: matrix.task == 'test'
-        run: cargo test --locked --workspace
+        run: cargo test --locked --workspace --no-fail-fast
 
       - name: Language share
         if: matrix.task == 'lint'
