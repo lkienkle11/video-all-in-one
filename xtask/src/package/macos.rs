@@ -58,7 +58,15 @@ pub(super) fn build(
     version: &str,
     key: &str,
     allow_gpl: bool,
+    libmpv_dir: Option<&Path>,
 ) -> Result<()> {
+    // Release packages bundle only our own LGPL build; the Homebrew closure is GPL.
+    if libmpv_dir.is_none() && !allow_gpl {
+        bail!(
+            "pass --libmpv-dir <folder of `cargo xtask libmpv build`>: the Homebrew libraries are GPL builds (use {} only for local tests)",
+            super::license::ALLOW_GPL_FLAG
+        );
+    }
     let stage = out.join("stage-macos");
     if stage.exists() {
         fs::remove_dir_all(&stage).with_context(|| format!("clearing {}", stage.display()))?;
@@ -70,6 +78,9 @@ pub(super) fn build(
     for dir in [&macos, &frameworks, &resources] {
         fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
     }
+    if let Some(dir) = libmpv_dir {
+        copy_licenses(&dir.join("LICENSES"), &resources.join("third-party"))?;
+    }
     let icon = production_icon(root, "icon.icns")?;
     fs::copy(&icon, resources.join(format!("{ICON_NAME}.icns")))
         .with_context(|| format!("copying {}", icon.display()))?;
@@ -77,7 +88,7 @@ pub(super) fn build(
     fs::copy(binary, &executable).with_context(|| format!("copying {}", binary.display()))?;
     make_writable_executable(&executable)?;
 
-    let found = find_libraries(&executable)?;
+    let found = find_libraries(&executable, libmpv_dir)?;
     let sources: Vec<PathBuf> = found.libraries.iter().map(|l| l.source.clone()).collect();
     for warning in check_bundle_license(&sources, allow_gpl)? {
         println!("warning: {warning}");
@@ -169,8 +180,31 @@ pub(super) fn build(
     Ok(())
 }
 
-/// The libraries `executable` needs, from `otool -L` on each file.
-fn find_libraries(executable: &Path) -> Result<Closure> {
+/// Copies the licence texts and source URLs of the libmpv build into the bundle; a package
+/// without them must not be built.
+fn copy_licenses(from: &Path, to: &Path) -> Result<()> {
+    fs::create_dir_all(to).with_context(|| format!("creating {}", to.display()))?;
+    let entries = fs::read_dir(from).with_context(|| {
+        format!(
+            "reading {}: the libmpv build has no LICENSES",
+            from.display()
+        )
+    })?;
+    let mut count = 0;
+    for entry in entries {
+        let entry = entry?;
+        fs::copy(entry.path(), to.join(entry.file_name()))?;
+        count += 1;
+    }
+    if count == 0 {
+        bail!("{} is empty", from.display());
+    }
+    Ok(())
+}
+
+/// The libraries `executable` needs, from `otool -L` on each file. With `libmpv_dir` they come
+/// only from that build; otherwise from wherever Homebrew put them (local testing).
+fn find_libraries(executable: &Path, libmpv_dir: Option<&Path>) -> Result<Closure> {
     let mut list = |path: &Path, _library: bool| -> Result<String> {
         let output = Command::new("otool")
             .arg("-L")
@@ -182,7 +216,31 @@ fn find_libraries(executable: &Path) -> Result<Closure> {
         }
         Ok(String::from_utf8_lossy(&output.stdout).into_owned())
     };
-    macos_libs::closure(executable, &mut list, &macos_libs::resolve_on_disk)
+    match libmpv_dir {
+        Some(dir) => {
+            let lib = dir.join("lib");
+            macos_libs::closure(executable, &mut list, &|dep, referrer| {
+                resolve_in_build(dep, referrer, &lib)
+            })
+        }
+        None => macos_libs::closure(executable, &mut list, &macos_libs::resolve_on_disk),
+    }
+}
+
+/// The file behind `dep` inside our libmpv build `lib`. The executable (no `referrer_dir`) and
+/// the libraries refer to each other as `@rpath/<file>` or `@loader_path/<file>`; anything else
+/// would point outside the build and is refused.
+fn resolve_in_build(dep: &str, referrer_dir: &Path, lib: &Path) -> Result<PathBuf> {
+    let candidate = if let Some(name) = dep.strip_prefix("@rpath/") {
+        lib.join(name)
+    } else if let Some(name) = dep.strip_prefix("@loader_path/") {
+        referrer_dir.join(name)
+    } else {
+        bail!("{dep} points outside the libmpv build ({})", lib.display());
+    };
+    candidate
+        .canonicalize()
+        .with_context(|| format!("{dep} is not in {}", lib.display()))
 }
 
 fn minimum_os_of(file: &Path) -> Result<Option<String>> {
@@ -267,7 +325,36 @@ fn make_writable_executable(_path: &Path) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::info_plist;
+    use super::{info_plist, resolve_in_build};
+    use std::path::Path;
+
+    #[test]
+    fn libraries_resolve_only_inside_the_libmpv_build() {
+        let dir = std::env::temp_dir().join(format!("vaio-macos-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("libmpv.2.dylib"), b"x").unwrap();
+        let real = dir.canonicalize().unwrap().join("libmpv.2.dylib");
+        assert_eq!(
+            resolve_in_build("@rpath/libmpv.2.dylib", Path::new(""), &dir).unwrap(),
+            real
+        );
+        assert_eq!(
+            resolve_in_build("@loader_path/libmpv.2.dylib", &dir, &dir).unwrap(),
+            real
+        );
+        for outside in [
+            "/opt/homebrew/lib/libmpv.2.dylib",
+            "/usr/local/lib/libx.dylib",
+            "@executable_path/x.dylib",
+        ] {
+            let error = resolve_in_build(outside, &dir, &dir)
+                .unwrap_err()
+                .to_string();
+            assert!(error.contains("outside the libmpv build"), "{error}");
+        }
+        assert!(resolve_in_build("@rpath/libmissing.dylib", Path::new(""), &dir).is_err());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 
     #[test]
     fn info_plist_names_the_production_app_and_its_minimum_system() {

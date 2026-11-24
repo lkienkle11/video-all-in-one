@@ -115,7 +115,7 @@ fn scan_reader<R: Read>(
 }
 
 /// Whether `needle` occurs in `haystack`; looks only where the first byte matches.
-fn contains(haystack: &[u8], needle: &[u8]) -> bool {
+pub(crate) fn contains(haystack: &[u8], needle: &[u8]) -> bool {
     let Some((&first, _)) = needle.split_first() else {
         return true;
     };
@@ -271,5 +271,50 @@ mod tests {
             checked += 1;
         }
         assert!(checked > 0);
+    }
+
+    /// The workflows that use our own libmpv pin its hash in `LIBMPV_SHA256_*` variables. The
+    /// text `PENDING-first-build` may stand only there (until the first build is published), and
+    /// the system libmpv packages must not come back.
+    #[test]
+    fn pending_hash_text_stands_only_in_the_pinned_variables_and_system_libmpv_is_gone() {
+        let workflows = Path::new(env!("CARGO_MANIFEST_DIR")).join("../.github/workflows");
+        for name in ["ci.yml", "release.yml"] {
+            let text = std::fs::read_to_string(workflows.join(name)).unwrap();
+            let mut pinned = 0;
+            for line in text.lines() {
+                if line.contains("PENDING-first-build") {
+                    let variable = line.trim_start().starts_with("LIBMPV_SHA256_")
+                        && !line.trim_start().starts_with('#');
+                    assert!(
+                        variable,
+                        "{name}: PENDING-first-build outside a pinned hash: {line}"
+                    );
+                    pinned += 1;
+                }
+            }
+            assert!(
+                pinned == 0 || pinned == 3,
+                "{name}: all three hashes or none ({pinned})"
+            );
+            for variable in ["LINUX_X86_64", "MACOS_ARM64", "MACOS_X86_64"] {
+                assert!(
+                    text.contains(&format!("LIBMPV_SHA256_{variable}:")),
+                    "{name} {variable}"
+                );
+            }
+            assert!(
+                !text.contains("libmpv-dev"),
+                "{name} installs the system libmpv"
+            );
+            assert!(
+                !text.contains("brew install mpv"),
+                "{name} installs Homebrew's libmpv"
+            );
+            assert!(
+                text.contains("ubuntu-22.04"),
+                "{name} must build on Ubuntu 22.04"
+            );
+        }
     }
 }

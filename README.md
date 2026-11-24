@@ -32,7 +32,7 @@ Also planned: the app updates itself from GitHub Releases, and the interface is 
 
 - Windows 10 and later.
 - A recent macOS. The packaged app carries its own libraries, so the minimum version is the one of the release's build machine and is stated in each release's notes.
-- Ubuntu 24.04 and later (the player needs libmpv with client API 2, which Ubuntu 22.04 does not have; support for 22.04 needs a bundled libmpv).
+- Ubuntu 22.04 and later (the package carries its own libmpv).
 
 macOS is the only platform exercised so far.
 
@@ -100,7 +100,7 @@ Licensed under the MIT License. See the [LICENSE](LICENSE) file.
 
 ### Third-party components
 
-Release packages bundle libmpv (the player) and FFmpeg libraries. Only LGPL builds of them are acceptable: the packaging command refuses to build a package that contains a GPL or non-free FFmpeg or libmpv (see `docs/RELEASING.md`). They remain under their own licenses, and their source code is available from their upstream projects. On Ubuntu the package depends on the system's libmpv instead of bundling it.
+Release packages bundle libmpv (the player) and FFmpeg libraries. Only LGPL builds of them are acceptable: the packaging command refuses to build a package that contains a GPL or non-free FFmpeg or libmpv (see `docs/RELEASING.md`). They remain under their own licenses, and their source code is available from their upstream projects. The macOS and Ubuntu packages carry our own LGPL build of them, made from pinned source archives; the licence texts and the source URLs are in the app bundle (`Contents/Resources/third-party`) or in `/usr/share/doc/video-all-in-one/third-party/` (see "Our own libmpv" in `docs/RELEASING.md`).
 
 ## Responsible use
 

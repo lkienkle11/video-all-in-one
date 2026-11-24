@@ -54,6 +54,7 @@ crates/storage | Implements persistent storage for application data.
 xtask | Provides workspace maintenance and release commands.
 xtask/src/check_structure | Checks workspace dependencies, source placement, and the architecture map.
 xtask/src/icons | Renders the app icon SVGs with resvg and writes the PNG, ICO and ICNS files, or checks that the committed ones are current.
-xtask/src/package | Builds the per-OS installer and update artifact: the macOS app bundle with its libraries, the Windows NSIS script and the Ubuntu .deb tree.
+xtask/src/libmpv | Builds our own LGPL libmpv and FFmpeg from pinned, hash-checked source archives on macOS and Ubuntu, checks the result, and packs it for CI and the packagers.
+xtask/src/package | Builds the per-OS installer and update artifact: the macOS app bundle with its libraries, the Windows NSIS script and the Ubuntu .deb tree with its bundled libmpv.
 xtask/src/release | Release commands: versioning, update signing keys and signatures, and the update manifest.
 <!-- structure-map:end -->

@@ -22,6 +22,14 @@ env:
   CARGO_PROFILE_DEV_DEBUG: "0"
   # Overrides rust-toolchain.toml (channel "stable") so every run uses the same compiler.
   RUSTUP_TOOLCHAIN: "1.99.1"
+  # macOS and Ubuntu: our own LGPL libmpv, built by build-libmpv.yml and published as assets of the
+  # release libmpv-1. LIBMPV_RECIPE must equal RECIPE_VERSION in xtask/src/libmpv/sources.rs.
+  # Replace each PENDING value with the SHA-256 the Build libmpv workflow prints for that archive.
+  LIBMPV_RECIPE: "1"
+  LIBMPV_URL_BASE: "https://github.com/${{ github.repository }}/releases/download/libmpv-1"
+  LIBMPV_SHA256_LINUX_X86_64: "PENDING-first-build"
+  LIBMPV_SHA256_MACOS_ARM64: "PENDING-first-build"
+  LIBMPV_SHA256_MACOS_X86_64: "PENDING-first-build"
   # Windows only: libmpv for Windows from the LGPL build of zhongfly/mpv-winbuild.
   MPV_WIN_URL: "https://github.com/zhongfly/mpv-winbuild/releases/download/2026-11-23-35efcf53d5/mpv-dev-lgpl-x86_64-20261123-git-35efcf53d5.7z"
   MPV_WIN_SHA256: "029892b3c3951bbb738d05a338698d330e0682b767ff7c142a4da68da68c175a"
@@ -93,8 +101,8 @@ jobs:
           - name: windows
             os: windows-2025
             target: windows
-          - name: ubuntu-24.04
-            os: ubuntu-24.04
+          - name: ubuntu-22.04
+            os: ubuntu-22.04
             target: ubuntu
     defaults:
       run:
@@ -120,23 +128,64 @@ jobs:
           restore-keys: |
             cargo-release-${{ matrix.os }}-${{ env.RUSTUP_TOOLCHAIN }}-
 
-      # macOS: vaio-media links libmpv; .cargo/config.toml points the linker at the Homebrew folder.
-      - name: Install libmpv and FFmpeg (macOS)
+      # macOS and Ubuntu: our own LGPL libmpv from the release libmpv-1 (built by
+      # build-libmpv.yml). The archive is checked against the pinned SHA-256 before it is unpacked.
+      # RUSTFLAGS replaces the Homebrew entries of .cargo/config.toml, which stay for local work.
+      - name: Install the pinned libmpv (macOS and Ubuntu)
+        if: runner.os != 'Windows'
+        run: |
+          set -eu
+          case "$RUNNER_OS-$RUNNER_ARCH" in
+            Linux-X64) platform=linux-x86_64; want="$LIBMPV_SHA256_LINUX_X86_64" ;;
+            macOS-ARM64) platform=macos-arm64; want="$LIBMPV_SHA256_MACOS_ARM64" ;;
+            macOS-X64) platform=macos-x86_64; want="$LIBMPV_SHA256_MACOS_X86_64" ;;
+            *) echo "::error::there is no libmpv build for $RUNNER_OS $RUNNER_ARCH"; exit 1 ;;
+          esac
+          case "$want" in
+            PENDING*)
+              echo "::error::the SHA-256 of the libmpv archive for $platform is not pinned yet. Run the Build libmpv workflow, then copy the SHA-256 it prints into LIBMPV_SHA256_* at the top of ci.yml and release.yml (docs/RELEASING.md, Our own libmpv)."
+              exit 1 ;;
+          esac
+          archive="libmpv-${LIBMPV_RECIPE}-${platform}.tar.gz"
+          file="$RUNNER_TEMP/$archive"
+          curl --fail --location --silent --show-error --proto '=https' --tlsv1.2 --retry 3 \
+            --output "$file" "$LIBMPV_URL_BASE/$archive"
+          if command -v sha256sum > /dev/null; then got=$(sha256sum "$file" | cut -d' ' -f1); else got=$(shasum -a 256 "$file" | cut -d' ' -f1); fi
+          if [ "$got" != "$want" ]; then
+            echo "::error::$archive has SHA-256 $got, expected $want"
+            exit 1
+          fi
+          dir="$RUNNER_TEMP/libmpv"
+          mkdir -p "$dir"
+          tar -xzf "$file" -C "$dir"
+          test -d "$dir/lib"
+          flags="-L native=$dir/lib -C link-arg=-Wl,-rpath,$dir/lib"
+          if [ "$RUNNER_OS" = Linux ]; then flags="$flags -C link-arg=-Wl,-rpath-link,$dir/lib"; fi
+          {
+            echo "LIBMPV_DIR=$dir"
+            echo "PKG_CONFIG_PATH=$dir/lib/pkgconfig"
+            echo "LIBRARY_PATH=$dir/lib"
+            echo "RUSTFLAGS=$flags"
+          } >> "$GITHUB_ENV"
+
+      # The tests use the ffmpeg command. This build is only a test tool and is never shipped.
+      - name: Install the FFmpeg command and the build tools (macOS)
         if: runner.os == 'macOS'
         env:
           HOMEBREW_NO_INSTALL_CLEANUP: "1"
         run: |
-          brew install mpv ffmpeg
+          brew install ffmpeg
           xcrun metal --version || xcodebuild -downloadComponent MetalToolchain
 
-      # Ubuntu 24.04: libmpv2 and the libraries GPUI needs to build (list taken from Zed's script/linux).
-      - name: Install libmpv, FFmpeg and GPUI build libraries (Ubuntu)
+      # Ubuntu 22.04: the libraries GPUI needs to build (list taken from Zed's script/linux) and
+      # the ffmpeg command for the tests. libmpv comes from our own build, not from apt.
+      - name: Install FFmpeg and GPUI build libraries (Ubuntu)
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             build-essential pkg-config clang cmake \
-            libmpv-dev ffmpeg \
+            ffmpeg \
             libasound2-dev libfontconfig-dev libwayland-dev libx11-xcb-dev \
             libxkbcommon-x11-dev libvulkan1 libzstd-dev
 
@@ -179,18 +228,25 @@ jobs:
 
       # Never --workspace here: Cargo unifies features across the workspace and would turn
       # every crate into a production build.
+      # Ubuntu: the executable finds the bundled libmpv through the run path
+      # $ORIGIN/../lib/video-all-in-one (/usr/lib/video-all-in-one next to /usr/bin); the
+      # packager refuses an executable without it. The libmpv folder of the runner is not a run path.
       - name: Build the production app
         env:
           VAIO_UPDATE_MANIFEST_URL: https://github.com/${{ github.repository }}/releases/latest/download/latest.json
-        run: cargo build --locked --release -p vaio-desktop --features production
+        run: |
+          if [ "$RUNNER_OS" = Linux ]; then
+            export RUSTFLAGS="-L native=$LIBMPV_DIR/lib -C link-arg=-Wl,-rpath-link,$LIBMPV_DIR/lib -C link-arg=-Wl,-rpath,\$ORIGIN/../lib/video-all-in-one"
+          fi
+          cargo build --locked --release -p vaio-desktop --features production
 
       - name: Package (macOS)
         if: matrix.target == 'macos'
-        run: cargo xtask package --target macos --out dist
+        run: cargo xtask package --target macos --out dist --libmpv-dir "$LIBMPV_DIR"
 
       - name: Package (Ubuntu)
         if: matrix.target == 'ubuntu'
-        run: cargo xtask package --target ubuntu --out dist
+        run: cargo xtask package --target ubuntu --out dist --libmpv-dir "$LIBMPV_DIR"
 
       - name: Package (Windows)
         if: matrix.target == 'windows'
@@ -228,15 +284,25 @@ jobs:
         run: |
           dpkg-deb --info dist/video-all-in-one-*-linux-x86_64.deb
           dpkg-deb --contents dist/video-all-in-one-*-linux-x86_64.deb
-          if ldd target/release/vaio-desktop | grep "not found"; then
-            echo "::error::the app needs a library that is not installed"
-            exit 1
-          fi
-          sudo dpkg -i dist/video-all-in-one-*-linux-x86_64.deb
+          # apt resolves the Depends: line of the package, which proves it can be installed.
+          sudo apt-get install -y ./dist/video-all-in-one-*-linux-x86_64.deb
           test -x /usr/bin/video-all-in-one
           test -f /usr/share/applications/video-all-in-one.desktop
+          test -e /usr/lib/video-all-in-one/libmpv.so.2
+          ls /usr/share/doc/video-all-in-one/third-party
+          # The installed executable must find every library without the build folder.
+          ldd /usr/bin/video-all-in-one | tee ldd.txt
+          if grep "not found" ldd.txt; then
+            echo "::error::the installed app needs a library that is missing"
+            exit 1
+          fi
+          if grep -F "$LIBMPV_DIR" ldd.txt; then
+            echo "::error::the installed app still loads a library from the build folder"
+            exit 1
+          fi
           sudo dpkg -r video-all-in-one
           test ! -e /usr/bin/video-all-in-one
+          test ! -e /usr/lib/video-all-in-one
 
       - name: Install and remove the installer silently (Windows)
         if: matrix.target == 'windows'

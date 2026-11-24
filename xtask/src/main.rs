@@ -1,6 +1,7 @@
 mod check_structure;
 mod icons;
 mod lang_share;
+mod libmpv;
 mod package;
 mod release;
 mod structure_map;
@@ -50,6 +51,11 @@ enum Command {
         #[arg(long)]
         file: PathBuf,
     },
+    /// Builds and packs our own LGPL libmpv (see docs/RELEASING.md, "Our own libmpv").
+    Libmpv {
+        #[command(subcommand)]
+        command: libmpv::Command,
+    },
     /// Builds the installer and the update artifact of one OS from a built production binary.
     Package {
         #[arg(long, value_enum)]
@@ -66,6 +72,9 @@ enum Command {
         /// Windows only: the folder with libmpv-2.dll and the DLLs it needs.
         #[arg(long)]
         libs: Option<PathBuf>,
+        /// macOS and Ubuntu: the folder of our own libmpv build (`cargo xtask libmpv build`).
+        #[arg(long)]
+        libmpv_dir: Option<PathBuf>,
         /// Local testing only: lets GPL or non-free libraries into the package, with a warning.
         #[arg(long = "allow-gpl-for-local-testing")]
         allow_gpl: bool,
@@ -103,6 +112,7 @@ fn main() -> Result<()> {
             out,
             binary,
             libs,
+            libmpv_dir,
             allow_gpl,
         } => package::run(
             &root,
@@ -112,9 +122,11 @@ fn main() -> Result<()> {
                 out,
                 binary,
                 libs,
+                libmpv_dir,
                 allow_gpl,
             },
         ),
+        Command::Libmpv { command } => libmpv::run(command),
         Command::Keygen { out } => keygen::run(&out),
         Command::Sign { file } => sign::run(&file),
         Command::LatestJson {
