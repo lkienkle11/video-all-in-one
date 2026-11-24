@@ -223,7 +223,7 @@ mod lifecycle {
         )
         .await
         .unwrap();
-        assert!(matches!(result, Err(RunError::Cancelled)));
+        assert!(matches!(result, Err(RunError::Cancelled)), "{result:?}");
         assert_dead(&file).await;
     }
 

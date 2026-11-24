@@ -30,7 +30,10 @@ impl Group {
             return Ok(());
         }
         let error = std::io::Error::last_os_error();
-        if error.raw_os_error() == Some(libc::ESRCH) {
+        // The group is our own child's, so EPERM can only mean that every member has
+        // already exited and is waiting to be reaped (macOS reports that case as EPERM
+        // instead of ESRCH). There is nothing left to signal either way.
+        if matches!(error.raw_os_error(), Some(libc::ESRCH | libc::EPERM)) {
             Ok(())
         } else {
             Err(error)
