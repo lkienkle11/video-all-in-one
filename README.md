@@ -31,7 +31,7 @@ Also planned: the app updates itself from GitHub Releases, and the interface is 
 ## Supported platforms
 
 - Windows 10 and later.
-- macOS 13 and later.
+- A recent macOS. The packaged app carries its own libraries, so the minimum version is the one of the release's build machine and is stated in each release's notes.
 - Ubuntu 22.04 and later.
 
 macOS is the only platform exercised so far.
@@ -96,7 +96,11 @@ The crate map is in `docs/architecture.md`.
 
 ## License
 
-Licensed under the MIT License. The LICENSE file will be added to the repository.
+Licensed under the MIT License. See the [LICENSE](LICENSE) file.
+
+### Third-party components
+
+Release packages bundle libmpv (the player) and FFmpeg libraries. Only LGPL builds of them are acceptable: the packaging command refuses to build a package that contains a GPL or non-free FFmpeg or libmpv (see `docs/RELEASING.md`). They remain under their own licenses, and their source code is available from their upstream projects. On Ubuntu the package depends on the system's libmpv instead of bundling it.
 
 ## Responsible use
 

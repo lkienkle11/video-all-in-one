@@ -119,7 +119,7 @@ If the app cannot install an update itself, it downloads and verifies the file a
 
 ## Known limits
 
-- macOS minimum version: the bundled Homebrew libraries are built for the macOS version of the build machine (macOS 15 on the CI runners). `cargo xtask package` reads the real minimum from every file and writes the highest one into `LSMinimumSystemVersion`, so older systems get a clear refusal instead of a crash. The README promise of macOS 13 is therefore not met until libmpv is built for macOS 13.
+- macOS minimum version: the bundled Homebrew libraries are built for the macOS version of the build machine (macOS 15 on the CI runners). `cargo xtask package` reads the real minimum from every file and writes the highest one into `LSMinimumSystemVersion`, so older systems get a clear refusal instead of a crash. The README therefore promises only a recent macOS. Supporting macOS 13 needs a libmpv built for macOS 13 (a later task).
 - Ubuntu: the package depends on `libmpv1`, which exists on 22.04 only. Ubuntu 24.04 ships `libmpv2` and cannot install this package.
 - The Ubuntu package lists only `libmpv1` and `libc6` as dependencies. The other libraries GPUI loads at run time (Wayland, X11, Vulkan, fontconfig, ALSA) are not declared; the CI step runs `ldd` to catch missing ones on the runner only.
 - The `.deb` maintainer address is `noreply@example.invalid` until a real contact exists.
