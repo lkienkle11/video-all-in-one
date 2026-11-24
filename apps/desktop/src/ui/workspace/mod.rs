@@ -22,9 +22,11 @@ use vaio_core::{
 };
 use vaio_media::analysis::analyze_source;
 
+mod export_panel;
 mod inspector;
 mod job_queue_panel;
 mod preview;
+mod segment_editor;
 mod source_list;
 mod timeline_placeholder;
 mod toolbar;
@@ -33,6 +35,8 @@ pub struct WorkspaceView {
     state: Entity<AppState>,
     settings: Entity<SettingsView>,
     preview: Entity<preview::PreviewView>,
+    editor: Entity<segment_editor::SegmentEditor>,
+    export: Entity<export_panel::ExportPanel>,
     queue_collapsed: bool,
     cancel: CancellationToken,
     _subscriptions: Vec<Subscription>,
@@ -57,6 +61,18 @@ impl WorkspaceView {
         let runtime = state.read(cx).runtime().clone();
         let preview =
             cx.new(|cx| preview::PreviewView::new(runtime, audio, settings.clone(), window, cx));
+        let editor = cx.new(|cx| {
+            segment_editor::SegmentEditor::new(state.clone(), settings.clone(), window, cx)
+        });
+        let export = cx.new(|cx| {
+            export_panel::ExportPanel::new(
+                state.clone(),
+                settings.clone(),
+                editor.clone(),
+                window,
+                cx,
+            )
+        });
         let subscriptions = vec![
             cx.observe(&state, |_, _, cx| cx.notify()),
             cx.observe(&settings, |_, _, cx| cx.notify()),
@@ -66,6 +82,8 @@ impl WorkspaceView {
             state,
             settings,
             preview,
+            editor,
+            export,
             queue_collapsed: false,
             cancel: CancellationToken::new(),
             _subscriptions: subscriptions,

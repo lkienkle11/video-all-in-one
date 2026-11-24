@@ -167,6 +167,36 @@ fn index(t: Text) -> usize {
         Text::InspectorContainer => 57,
         Text::InspectorVideo => 58,
         Text::InspectorAudio => 59,
+        Text::SegmentsTitle => 60,
+        Text::SegmentStart => 61,
+        Text::SegmentEnd => 62,
+        Text::SegmentAdd => 63,
+        Text::SegmentRemove => 64,
+        Text::SegmentsEmptyHint => 65,
+        Text::SegmentErrorInvalid => 66,
+        Text::SegmentErrorReversed => 67,
+        Text::SegmentErrorBeyond => 68,
+        Text::ExportTitle => 69,
+        Text::ExportCutFast => 70,
+        Text::ExportCutPrecise => 71,
+        Text::ExportCutFastHint => 72,
+        Text::ExportCutPreciseHint => 73,
+        Text::ExportModeSeparate => 74,
+        Text::ExportModeMerged => 75,
+        Text::ExportOutputFolder => 76,
+        Text::ExportNameStem => 77,
+        Text::ExportButton => 78,
+        Text::ExportQueued => 79,
+        Text::ExportSubmitting => 80,
+        Text::ExportErrorNoSource => 81,
+        Text::ExportErrorUnavailable => 82,
+        Text::ExportErrorSegments => 83,
+        Text::ExportErrorStem => 84,
+        Text::ExportErrorFolder => 85,
+        Text::ExportErrorFolderIsFile => 86,
+        Text::ExportErrorFolderCreate => 87,
+        Text::ExportErrorOverwrite => 88,
+        Text::ExportErrorSubmit => 89,
     }
 }
 
@@ -180,7 +210,7 @@ fn text_all_lists_every_variant_in_enum_order() {
         );
     }
     // The last variant has the highest index.
-    let highest = index(Text::InspectorAudio);
+    let highest = index(Text::ExportErrorSubmit);
     assert_eq!(
         Text::ALL.len(),
         highest + 1,

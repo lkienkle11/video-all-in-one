@@ -34,6 +34,7 @@ replace `TODO` with one sentence, commit the map with the code.
 
 <!-- structure-map:start -->
 apps/desktop | Presents the desktop interface and connects it to application services.
+apps/desktop/src/commands | Holds application commands, such as queuing an export job, that the UI runs on a blocking worker.
 apps/desktop/src/ui | Presents the workspace, language selection, Settings and error or update dialogs through the shared modal policy.
 apps/desktop/src/ui/workspace | Composes resizable local-source, preview, inspector, timeline and job queue panels, with asynchronous analysis and playback.
 crates/core | Defines domain policy, services and ports independently of adapters.

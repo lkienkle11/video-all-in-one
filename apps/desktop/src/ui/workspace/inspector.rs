@@ -52,10 +52,14 @@ pub(super) fn render(view: &WorkspaceView, cx: &Context<WorkspaceView>) -> impl 
                 .min_h_0()
                 .overflow_y_scroll()
                 .p_3()
+                .v_flex()
+                .gap_3()
                 .child(match details {
                     Some(text) => label("inspector-streams", text).into_any_element(),
                     None => label("inspector-empty", tr(language, Text::InspectorEmpty))
                         .into_any_element(),
-                }),
+                })
+                .child(view.editor.clone())
+                .child(view.export.clone()),
         )
 }

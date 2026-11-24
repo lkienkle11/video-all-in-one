@@ -67,5 +67,41 @@ pub fn text(text: Text) -> &'static str {
         Text::InspectorContainer => "Container: {0}",
         Text::InspectorVideo => "Video: {0} · {1} × {2}",
         Text::InspectorAudio => "Audio: {0} · {1} channels",
+        Text::SegmentsTitle => "Segments",
+        Text::SegmentStart => "Start",
+        Text::SegmentEnd => "End",
+        Text::SegmentAdd => "Add segment",
+        Text::SegmentRemove => "Remove",
+        Text::SegmentsEmptyHint => "Add at least one segment to export.",
+        Text::SegmentErrorInvalid => "Enter a time like 90, 01:30 or 00:01:30.500.",
+        Text::SegmentErrorReversed => "The end must be after the start.",
+        Text::SegmentErrorBeyond => "The end is after the end of the video ({0}).",
+        Text::ExportTitle => "Export",
+        Text::ExportCutFast => "Fast",
+        Text::ExportCutPrecise => "Precise",
+        Text::ExportCutFastHint => {
+            "Fast copies the video without re-encoding, so cuts snap to the nearest keyframe."
+        }
+        Text::ExportCutPreciseHint => {
+            "Precise re-encodes the video to cut exactly at the times you set. It takes longer."
+        }
+        Text::ExportModeSeparate => "Separate files",
+        Text::ExportModeMerged => "One merged file",
+        Text::ExportOutputFolder => "Output folder",
+        Text::ExportNameStem => "File name",
+        Text::ExportButton => "Export",
+        Text::ExportQueued => "Export queued as job #{0}.",
+        Text::ExportSubmitting => "Adding to the queue…",
+        Text::ExportErrorNoSource => "Add and select a video first.",
+        Text::ExportErrorUnavailable => "The export queue is not available.",
+        Text::ExportErrorSegments => "Fix the segments before exporting.",
+        Text::ExportErrorStem => {
+            "The file name is empty, too long or has a character that is not allowed."
+        }
+        Text::ExportErrorFolder => "Enter the output folder as an absolute path.",
+        Text::ExportErrorFolderIsFile => "The output folder is an existing file.",
+        Text::ExportErrorFolderCreate => "Couldn’t create the output folder.",
+        Text::ExportErrorOverwrite => "The output would overwrite the source video.",
+        Text::ExportErrorSubmit => "Couldn’t add the export to the queue. Try again.",
     }
 }
