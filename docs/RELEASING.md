@@ -72,6 +72,10 @@ cargo xtask package --target macos   # or ubuntu; windows needs --libs <folder w
 
 The output is in `target/package`. Never use `--workspace --features production`: Cargo would switch every crate to the production channel.
 
+## App icons
+
+The icons come from two SVG files: `assets/icons/app-icon.svg` (production) and `assets/icons/app-icon-dev.svg` (development, the same icon with an amber DEV band). To replace them, edit the SVGs (1024 x 1024, no text elements), run `cargo xtask icons` and commit the changed files in `assets/icons/generated/`. CI runs `cargo xtask icons --check` on Ubuntu and fails when the committed files differ from what the SVGs produce. The packagers use `generated/production/`: `icon.icns` becomes `AppIcon.icns` in the macOS bundle, `icon.ico` is the icon of the Windows installer and uninstaller, and `icon.png` is installed in the `.deb` as the `hicolor` 512x512 icon. The window icon of a running app is not set yet (GPUI only supports it on X11 and needs the `image` crate for it).
+
 ## First-run warnings
 
 The project does not use paid certificates, so the first run shows an operating system warning. This is expected. Tell users these steps (the README links here).
@@ -118,7 +122,6 @@ If the app cannot install an update itself, it downloads and verifies the file a
 - macOS minimum version: the bundled Homebrew libraries are built for the macOS version of the build machine (macOS 15 on the CI runners). `cargo xtask package` reads the real minimum from every file and writes the highest one into `LSMinimumSystemVersion`, so older systems get a clear refusal instead of a crash. The README promise of macOS 13 is therefore not met until libmpv is built for macOS 13.
 - Ubuntu: the package depends on `libmpv1`, which exists on 22.04 only. Ubuntu 24.04 ships `libmpv2` and cannot install this package.
 - The Ubuntu package lists only `libmpv1` and `libc6` as dependencies. The other libraries GPUI loads at run time (Wayland, X11, Vulkan, fontconfig, ALSA) are not declared; the CI step runs `ldd` to catch missing ones on the runner only.
-- The macOS bundle has no icon and the Windows installer has no icon, because the repository has none yet.
 - The `.deb` maintainer address is `noreply@example.invalid` until a real contact exists.
 
 ## What is unproven
@@ -131,6 +134,7 @@ Not run anywhere:
 - Intel macOS packaging (same code, other architecture).
 - The Windows package: `makensis` was not available, so the generated NSIS script was unit tested as text only. The `lib.exe` step that makes `mpv.lib`, the assumption that the libmpv package contains `mpv.def` and `libmpv-2.dll`, linking the app against it, and the silent install and uninstall steps.
 - The Ubuntu package: `dpkg-deb` was not available, so the control file and desktop entry were unit tested as text only. Building the `.deb`, installing it, the `ldd` check and removal.
+- `cargo xtask icons --check` on Ubuntu compares bytes with files made on a Mac. If the renderer rounds differently on another CPU, the check fails there and the icons must be regenerated or the check relaxed.
 - Fresh install, upgrade and uninstall on a real machine or clean VM for any OS, including the updater installing a package made by this pipeline.
 - Notarization: not done, by design.
 - `UPDATE_SIGNING_KEY`, `UPDATE_PUBLIC_KEY` and the tag ruleset are not set up; the key has not been generated.

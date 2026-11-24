@@ -122,3 +122,7 @@ jobs:
 
       - name: Structure
         run: cargo xtask check-structure
+
+      - name: App icons are current
+        if: runner.os == 'Linux'
+        run: cargo xtask icons --check

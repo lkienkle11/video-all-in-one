@@ -1,10 +1,13 @@
 //! The Ubuntu package: a `.deb` staged as a plain directory tree and built with `dpkg-deb`.
 
-use super::{package_file_name, run_tool, APP_NAME, BINARY_NAME};
+use super::{package_file_name, production_icon, run_tool, APP_NAME, BINARY_NAME};
 use anyhow::{Context, Result};
 use std::fs;
 use std::path::Path;
 use std::process::Command;
+
+/// Where the icon is installed, relative to the package root.
+pub(super) const ICON_PATH: &str = "usr/share/icons/hicolor/512x512/apps/video-all-in-one.png";
 
 /// The `DEBIAN/control` text. `installed_kib` is the size of the staged files in KiB.
 pub(super) fn control_file(version: &str, installed_kib: u64) -> String {
@@ -34,6 +37,7 @@ pub(super) fn desktop_entry() -> String {
         format!("Name={APP_NAME}"),
         format!("Exec=/usr/bin/{BINARY_NAME}"),
         "Terminal=false".to_string(),
+        format!("Icon={BINARY_NAME}"),
         "Categories=AudioVideo;Video;".to_string(),
     ]
     .join("\n")
@@ -41,15 +45,21 @@ pub(super) fn desktop_entry() -> String {
 }
 
 /// Stages the package tree, builds it with `dpkg-deb` and leaves the `.deb` in `out`.
-pub(super) fn build(binary: &Path, out: &Path, version: &str, key: &str) -> Result<()> {
+pub(super) fn build(
+    root: &Path,
+    binary: &Path,
+    out: &Path,
+    version: &str,
+    key: &str,
+) -> Result<()> {
     let stage = out.join("stage-deb");
     if stage.exists() {
         fs::remove_dir_all(&stage).with_context(|| format!("clearing {}", stage.display()))?;
     }
-    let root = stage.join(format!("{BINARY_NAME}_{version}_amd64"));
-    let bin_dir = root.join("usr/bin");
-    let apps_dir = root.join("usr/share/applications");
-    let control_dir = root.join("DEBIAN");
+    let tree = stage.join(format!("{BINARY_NAME}_{version}_amd64"));
+    let bin_dir = tree.join("usr/bin");
+    let apps_dir = tree.join("usr/share/applications");
+    let control_dir = tree.join("DEBIAN");
     for dir in [&bin_dir, &apps_dir, &control_dir] {
         fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
     }
@@ -59,18 +69,32 @@ pub(super) fn build(binary: &Path, out: &Path, version: &str, key: &str) -> Resu
     let desktop = apps_dir.join(format!("{BINARY_NAME}.desktop"));
     fs::write(&desktop, desktop_entry())?;
     set_mode(&desktop, 0o644)?;
+    let icon = tree.join(ICON_PATH);
+    let icon_dir = icon.parent().context("the icon path has a folder")?;
+    fs::create_dir_all(icon_dir).with_context(|| format!("creating {}", icon_dir.display()))?;
+    let icon_source = production_icon(root, "icon.png")?;
+    fs::copy(&icon_source, &icon).with_context(|| format!("copying {}", icon_source.display()))?;
+    set_mode(&icon, 0o644)?;
     let kib = fs::metadata(&installed)?.len().div_ceil(1024);
     let control = control_dir.join("control");
     fs::write(&control, control_file(version, kib))?;
     set_mode(&control, 0o644)?;
-    for dir in [
-        &root,
-        &root.join("usr"),
-        &bin_dir,
-        &root.join("usr/share"),
-        &apps_dir,
-        &control_dir,
-    ] {
+    let share = tree.join("usr/share");
+    let mut dirs = vec![
+        tree.clone(),
+        tree.join("usr"),
+        bin_dir,
+        apps_dir,
+        control_dir,
+    ];
+    dirs.extend(
+        icon_dir
+            .ancestors()
+            .take_while(|dir| *dir != tree.join("usr"))
+            .map(Path::to_path_buf),
+    );
+    dirs.push(share);
+    for dir in &dirs {
         set_mode(dir, 0o755)?;
     }
     let deb = out.join(package_file_name(version, key, "deb"));
@@ -80,7 +104,7 @@ pub(super) fn build(binary: &Path, out: &Path, version: &str, key: &str) -> Resu
     run_tool(
         Command::new("dpkg-deb")
             .args(["--build", "--root-owner-group"])
-            .arg(&root)
+            .arg(&tree)
             .arg(&deb),
     )?;
     println!("wrote {}", deb.display());
@@ -101,7 +125,7 @@ fn set_mode(_path: &Path, _mode: u32) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{control_file, desktop_entry};
+    use super::{control_file, desktop_entry, ICON_PATH};
 
     fn field<'a>(text: &'a str, name: &str) -> Option<&'a str> {
         text.lines()
@@ -138,9 +162,18 @@ mod tests {
             "Name=Video All-in-One",
             "Exec=/usr/bin/video-all-in-one",
             "Terminal=false",
+            "Icon=video-all-in-one",
             "Categories=AudioVideo;Video;",
         ] {
             assert!(entry.lines().any(|l| l == line), "missing {line}\n{entry}");
         }
+    }
+
+    #[test]
+    fn icon_is_installed_where_the_desktop_entry_finds_it_by_name() {
+        assert_eq!(
+            ICON_PATH,
+            "usr/share/icons/hicolor/512x512/apps/video-all-in-one.png"
+        );
     }
 }

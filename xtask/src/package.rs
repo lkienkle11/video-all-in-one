@@ -118,9 +118,11 @@ pub fn run(root: &Path, options: &Options) -> Result<()> {
     std::fs::create_dir_all(&out).with_context(|| format!("creating {}", out.display()))?;
     let key = platform_key(options.target, std::env::consts::ARCH)?;
     match options.target {
-        Target::Macos => macos::build(&binary, &out, &version, key)?,
-        Target::Windows => nsis::build(&binary, &out, &version, key, options.libs.as_deref())?,
-        Target::Ubuntu => deb::build(&binary, &out, &version, key)?,
+        Target::Macos => macos::build(root, &binary, &out, &version, key)?,
+        Target::Windows => {
+            nsis::build(root, &binary, &out, &version, key, options.libs.as_deref())?
+        }
+        Target::Ubuntu => deb::build(root, &binary, &out, &version, key)?,
     }
     let artifact = out.join(package_file_name(&version, key, update_extension(key)?));
     if !artifact.is_file() {
@@ -131,6 +133,15 @@ pub fn run(root: &Path, options: &Options) -> Result<()> {
     }
     println!("update artifact: {}", artifact.display());
     Ok(())
+}
+
+/// The committed production icon `file`; the packagers refuse to build without it.
+pub(crate) fn production_icon(root: &Path, file: &str) -> Result<PathBuf> {
+    let path = crate::icons::generated_path(root, crate::icons::Variant::Production, file);
+    if !path.is_file() {
+        bail!("{} is missing; run `cargo xtask icons`", path.display());
+    }
+    Ok(path)
 }
 
 /// Runs a tool and fails with its name and exit status when it does not succeed.

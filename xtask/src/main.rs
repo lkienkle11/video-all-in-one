@@ -1,4 +1,5 @@
 mod check_structure;
+mod icons;
 mod lang_share;
 mod package;
 mod release;
@@ -22,6 +23,12 @@ enum Command {
         min: f64,
     },
     CheckStructure,
+    /// Renders the app icons from the SVG sources into `assets/icons/generated`.
+    Icons {
+        /// Fail instead of writing when a committed icon is out of date.
+        #[arg(long)]
+        check: bool,
+    },
     StructureMap {
         #[arg(long, required = true)]
         write: bool,
@@ -83,6 +90,7 @@ enum Command {
 fn main() -> Result<()> {
     let root = std::env::current_dir()?;
     match Cli::parse().command {
+        Command::Icons { check } => icons::run(&root, check),
         Command::LangShare { min } => lang_share::run(&root, min),
         Command::SetVersion { version } => set_version::set_version(&root, &version),
         Command::CheckRelease { tag, latest } => check_release::check_release(&root, &tag, &latest),

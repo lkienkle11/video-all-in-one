@@ -2,7 +2,7 @@
 //! the zipped bundle (the update artifact) and a disk image.
 
 use super::macos_libs::{self, Closure};
-use super::{package_file_name, run_tool, APP_NAME, BINARY_NAME, IDENTIFIER};
+use super::{package_file_name, production_icon, run_tool, APP_NAME, BINARY_NAME, IDENTIFIER};
 use anyhow::{bail, Context, Result};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -12,6 +12,9 @@ use std::process::Command;
 /// it contains was built for a newer system.
 const MINIMUM_SYSTEM_VERSION: &str = "13.0";
 
+/// The icon file in `Contents/Resources` without its `.icns` extension (`CFBundleIconFile`).
+const ICON_NAME: &str = "AppIcon";
+
 /// The `Contents/Info.plist` text of the production app. `minimum_system` is the lowest macOS
 /// version every file in the bundle can run on.
 pub(super) fn info_plist(version: &str, minimum_system: &str) -> String {
@@ -19,6 +22,7 @@ pub(super) fn info_plist(version: &str, minimum_system: &str) -> String {
     let entries = [
         ("CFBundleDevelopmentRegion", "en".to_string()),
         ("CFBundleExecutable", BINARY_NAME.to_string()),
+        ("CFBundleIconFile", ICON_NAME.to_string()),
         ("CFBundleIdentifier", IDENTIFIER.to_string()),
         ("CFBundleInfoDictionaryVersion", "6.0".to_string()),
         ("CFBundleName", APP_NAME.to_string()),
@@ -46,7 +50,13 @@ fn xml_escape(text: &str) -> String {
 }
 
 /// Builds the app bundle, then the zip and the disk image next to each other in `out`.
-pub(super) fn build(binary: &Path, out: &Path, version: &str, key: &str) -> Result<()> {
+pub(super) fn build(
+    root: &Path,
+    binary: &Path,
+    out: &Path,
+    version: &str,
+    key: &str,
+) -> Result<()> {
     let stage = out.join("stage-macos");
     if stage.exists() {
         fs::remove_dir_all(&stage).with_context(|| format!("clearing {}", stage.display()))?;
@@ -54,9 +64,13 @@ pub(super) fn build(binary: &Path, out: &Path, version: &str, key: &str) -> Resu
     let app = stage.join(format!("{APP_NAME}.app"));
     let macos = app.join("Contents/MacOS");
     let frameworks = app.join("Contents/Frameworks");
-    for dir in [&macos, &frameworks] {
+    let resources = app.join("Contents/Resources");
+    for dir in [&macos, &frameworks, &resources] {
         fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
     }
+    let icon = production_icon(root, "icon.icns")?;
+    fs::copy(&icon, resources.join(format!("{ICON_NAME}.icns")))
+        .with_context(|| format!("copying {}", icon.display()))?;
     let executable = macos.join(BINARY_NAME);
     fs::copy(binary, &executable).with_context(|| format!("copying {}", binary.display()))?;
     make_writable_executable(&executable)?;
@@ -260,6 +274,7 @@ mod tests {
             "<key>LSMinimumSystemVersion</key>\n\t<string>13.0</string>",
             "<key>CFBundleName</key>\n\t<string>Video All-in-One</string>",
             "<key>CFBundlePackageType</key>\n\t<string>APPL</string>",
+            "<key>CFBundleIconFile</key>\n\t<string>AppIcon</string>",
         ] {
             assert!(plist.contains(expected), "missing {expected:?} in\n{plist}");
         }

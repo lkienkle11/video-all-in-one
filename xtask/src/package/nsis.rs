@@ -2,7 +2,7 @@
 //! `makensis`. The installer is per user (no administrator rights) and installs silently
 //! with `/S`, which is how the app's updater runs it.
 
-use super::{package_file_name, run_tool, APP_NAME, BINARY_NAME, IDENTIFIER};
+use super::{package_file_name, production_icon, run_tool, APP_NAME, BINARY_NAME, IDENTIFIER};
 use anyhow::{bail, Context, Result};
 use std::fs;
 use std::path::Path;
@@ -39,6 +39,7 @@ pub(super) fn installer_script(
     output: &Path,
     source_dir: &Path,
     files: &[String],
+    icon: &Path,
 ) -> Result<String> {
     for file in files {
         check_file_name(file)?;
@@ -53,6 +54,8 @@ pub(super) fn installer_script(
         format!("OutFile {}", quote(&output.display().to_string())?),
         format!("InstallDir \"$LOCALAPPDATA\\Programs\\{APP_NAME}\""),
         "SetCompressor /SOLID lzma".into(),
+        format!("Icon {}", quote(&icon.display().to_string())?),
+        format!("UninstallIcon {}", quote(&icon.display().to_string())?),
         "Page directory".into(),
         "Page instfiles".into(),
         "UninstPage uninstConfirm".into(),
@@ -99,6 +102,7 @@ pub(super) fn installer_script(
 }
 
 pub(super) fn build(
+    root: &Path,
     binary: &Path,
     out: &Path,
     version: &str,
@@ -142,7 +146,11 @@ pub(super) fn build(
     if installer.exists() {
         fs::remove_file(&installer)?;
     }
-    let script = installer_script(version, &installer, &stage, &files)?;
+    // The icon sits next to the script, outside the folder of installed files.
+    let icon = out.join("icon.ico");
+    let icon_source = production_icon(root, "icon.ico")?;
+    fs::copy(&icon_source, &icon).with_context(|| format!("copying {}", icon_source.display()))?;
+    let script = installer_script(version, &installer, &stage, &files, &icon)?;
     let script_path = out.join("installer.nsi");
     fs::write(&script_path, script)
         .with_context(|| format!("writing {}", script_path.display()))?;
@@ -165,8 +173,20 @@ mod tests {
                 "video-all-in-one.exe".to_string(),
                 "libmpv-2.dll".to_string(),
             ],
+            Path::new("C:\\out\\icon.ico"),
         )
         .unwrap()
+    }
+
+    #[test]
+    fn script_uses_the_icon_for_the_installer_and_the_uninstaller() {
+        let script = script();
+        assert!(script.contains("Icon \"C:\\out\\icon.ico\"\n"));
+        assert!(script.contains("UninstallIcon \"C:\\out\\icon.ico\"\n"));
+        assert!(
+            !script.contains("File \"C:\\out\\icon.ico\""),
+            "the icon is not installed as a file"
+        );
     }
 
     #[test]
@@ -238,6 +258,7 @@ mod tests {
             Path::new("out.exe"),
             Path::new("stage"),
             &["a\".dll".to_string()],
+            Path::new("icon.ico"),
         );
         assert!(result.is_err());
     }
