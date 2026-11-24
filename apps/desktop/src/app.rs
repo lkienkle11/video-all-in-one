@@ -1,16 +1,20 @@
-use crate::ui::{language_modal::LanguageModal, settings::SettingsView};
+use crate::{
+    state::AppState,
+    ui::{language_modal::LanguageModal, settings::SettingsView, workspace::WorkspaceView},
+};
 use gpui_kit::{AppContext, Context, Entity, IntoElement, Render, Window};
 use vaio_core::update::UpdateState;
 use vaio_platform::{channel::Channel, paths::data_dir, settings_store::SettingsStore};
 
 pub struct AppView {
-    settings: Entity<SettingsView>,
+    workspace: Entity<WorkspaceView>,
 }
 
 impl AppView {
     pub fn with_store(
         store: SettingsStore,
         channel: Channel,
+        state: Entity<AppState>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -26,12 +30,13 @@ impl AppView {
                 LanguageModal::open(settings, window, cx)
             });
         }
-        Self { settings }
+        let workspace = cx.new(|cx| WorkspaceView::new(state, settings, window, cx));
+        Self { workspace }
     }
 
-    pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub fn new(state: Entity<AppState>, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let channel = Channel::current();
-        Self::with_store(Self::settings_store(channel), channel, window, cx)
+        Self::with_store(Self::settings_store(channel), channel, state, window, cx)
     }
 
     pub fn settings_store(channel: Channel) -> SettingsStore {
@@ -43,11 +48,11 @@ impl AppView {
 
 impl Render for AppView {
     fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
-        self.settings.clone()
+        self.workspace.clone()
     }
 }
 
-fn data_base() -> Option<std::path::PathBuf> {
+pub fn data_base() -> Option<std::path::PathBuf> {
     #[cfg(target_os = "windows")]
     let base = std::env::var_os("APPDATA").map(std::path::PathBuf::from);
     #[cfg(target_os = "macos")]
@@ -83,6 +88,7 @@ mod tests {
             NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)),
         ));
         cx.update(gpui_kit::init);
+        let runtime = tokio::runtime::Runtime::new().unwrap();
         let (handle, _view) = cx.update(|cx| {
             gpui_kit::open_window(
                 WindowOptions {
@@ -94,10 +100,15 @@ mod tests {
                 },
                 cx,
                 |window, cx| {
+                    let (_, receiver) = tokio::sync::mpsc::unbounded_channel();
+                    let state = cx.new(|_| {
+                        crate::state::AppState::new(runtime.handle().clone(), None, receiver)
+                    });
                     cx.new(|cx| {
                         AppView::with_store(
                             vaio_platform::settings_store::SettingsStore::new(&dir.0),
                             vaio_platform::channel::Channel::Development,
+                            state,
                             window,
                             cx,
                         )
@@ -107,8 +118,11 @@ mod tests {
             .expect("open app window")
         });
 
-        cx.update_window(handle, |_, window, cx| window.render_frame(cx))
-            .expect("render app window without panic");
+        cx.update_window(handle, |_, window, cx| {
+            window.render_frame(cx);
+            assert!(window.find("workspace-toolbar").visible());
+        })
+        .expect("render app window without panic");
         cx.update(|cx| assert_eq!(cx.windows().len(), 1));
     }
 }

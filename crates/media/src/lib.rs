@@ -1,3 +1,4 @@
+pub mod analysis;
 pub mod export_runner;
 pub mod ffmpeg;
 pub mod ffprobe;

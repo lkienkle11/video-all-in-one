@@ -55,7 +55,40 @@ pub(crate) fn open_with_policy(
     actions: Vec<ModalAction>,
     dismissal: Option<ModalAction>,
 ) {
-    window.open_dialog(cx, move |dialog, _, _| {
+    open_with_content(
+        window,
+        cx,
+        body,
+        move |_| (title.clone(), actions.clone()),
+        dismissal,
+    );
+}
+
+/// Recomputes title and actions with the body, so a language change also updates modal chrome.
+pub fn open_dynamic_modal(
+    window: &mut Window,
+    cx: &mut App,
+    body: impl IntoElement + Clone + 'static,
+    content: impl Fn(&App) -> (SharedString, Vec<ModalAction>) + 'static,
+) {
+    open_with_content(
+        window,
+        cx,
+        body,
+        content,
+        Some(ModalAction::new("dismiss", "", |_, _| true)),
+    );
+}
+
+fn open_with_content(
+    window: &mut Window,
+    cx: &mut App,
+    body: impl IntoElement + Clone + 'static,
+    content: impl Fn(&App) -> (SharedString, Vec<ModalAction>) + 'static,
+    dismissal: Option<ModalAction>,
+) {
+    window.open_dialog(cx, move |dialog, _, cx| {
+        let (title, actions) = content(cx);
         let dismissal = dismissal.clone();
         let dismissible = dismissal.is_some();
         dialog

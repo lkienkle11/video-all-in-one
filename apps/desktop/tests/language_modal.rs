@@ -38,6 +38,8 @@ fn directory() -> Directory {
 }
 
 fn open(cx: &mut TestAppContext, dir: &std::path::Path) -> gpui_kit::AnyWindowHandle {
+    static RUNTIME: std::sync::OnceLock<tokio::runtime::Runtime> = std::sync::OnceLock::new();
+    let runtime = RUNTIME.get_or_init(|| tokio::runtime::Runtime::new().unwrap());
     cx.update(|cx| {
         gpui_kit::open_window(
             WindowOptions {
@@ -49,8 +51,18 @@ fn open(cx: &mut TestAppContext, dir: &std::path::Path) -> gpui_kit::AnyWindowHa
             },
             cx,
             |window, cx| {
+                let (_, receiver) = tokio::sync::mpsc::unbounded_channel();
+                let state = cx.new(|_| {
+                    vaio_desktop::state::AppState::new(runtime.handle().clone(), None, receiver)
+                });
                 cx.new(|cx| {
-                    AppView::with_store(SettingsStore::new(dir), Channel::Development, window, cx)
+                    AppView::with_store(
+                        SettingsStore::new(dir),
+                        Channel::Development,
+                        state,
+                        window,
+                        cx,
+                    )
                 })
             },
         )
@@ -93,6 +105,7 @@ fn choosing_vietnamese_switches_all_visible_text(cx: &mut TestAppContext) {
     cx.update_window(handle, |_, window, cx| {
         window.render_frame(cx);
         assert!(window.try_find("language-modal-body").is_none());
+        window.click("workspace-settings", cx);
         assert_eq!(window.find("settings-title").label(), Some("Cài đặt"));
         assert_eq!(window.find("language-label").label(), Some("Ngôn ngữ"));
         let version = format!("Phiên bản {}", env!("CARGO_PKG_VERSION"));
@@ -122,7 +135,7 @@ fn failed_language_save_keeps_modal_open(cx: &mut TestAppContext) {
             Some("Couldn’t save your language. Try again.")
         );
         assert!(window.find("language-modal-body").visible());
-        assert_eq!(window.find("settings-title").label(), Some("Settings"));
+        assert_eq!(window.find("sources-title").label(), Some("Sources"));
     })
     .unwrap();
     assert!(dir.join("settings.json").is_dir());
@@ -154,6 +167,7 @@ fn choice_is_saved_and_modal_not_shown_again(cx: &mut TestAppContext) {
     cx.update_window(reopened, |_, window, cx| {
         window.render_frame(cx);
         assert!(window.try_find("language-modal-body").is_none());
+        window.click("workspace-settings", cx);
         assert_eq!(window.find("settings-title").label(), Some("Cài đặt"));
     })
     .unwrap();

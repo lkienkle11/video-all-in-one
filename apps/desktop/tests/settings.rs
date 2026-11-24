@@ -38,6 +38,8 @@ fn directory() -> Directory {
 }
 
 fn open(cx: &mut TestAppContext, channel: Channel) -> (gpui_kit::AnyWindowHandle, Directory) {
+    static RUNTIME: std::sync::OnceLock<tokio::runtime::Runtime> = std::sync::OnceLock::new();
+    let runtime = RUNTIME.get_or_init(|| tokio::runtime::Runtime::new().unwrap());
     let dir = directory();
     SettingsStore::new(&dir)
         .save(&Settings {
@@ -55,12 +57,23 @@ fn open(cx: &mut TestAppContext, channel: Channel) -> (gpui_kit::AnyWindowHandle
             },
             cx,
             |window, cx| {
-                cx.new(|cx| AppView::with_store(SettingsStore::new(&dir), channel, window, cx))
+                let (_, receiver) = tokio::sync::mpsc::unbounded_channel();
+                let state = cx.new(|_| {
+                    vaio_desktop::state::AppState::new(runtime.handle().clone(), None, receiver)
+                });
+                cx.new(|cx| {
+                    AppView::with_store(SettingsStore::new(&dir), channel, state, window, cx)
+                })
             },
         )
         .unwrap()
         .0
     });
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        window.click("workspace-settings", cx);
+    })
+    .unwrap();
     (handle, dir)
 }
 
