@@ -7,6 +7,10 @@ edition.workspace = true
 gpui-kit.workspace = true
 vaio-core = { path = "../../crates/core" }
 vaio-platform = { path = "../../crates/platform" }
+vaio-media = { path = "../../crates/media" }
+vaio-storage = { path = "../../crates/storage" }
+tokio.workspace = true
+tokio-util.workspace = true
 
 [features]
 production = ["vaio-platform/production"]
