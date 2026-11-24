@@ -3,6 +3,7 @@
 //! tested; the tool calls (`otool`, `makensis`, `dpkg-deb`, ...) run only on their own OS.
 
 mod deb;
+mod license;
 mod macos;
 mod macos_libs;
 mod nsis;
@@ -38,6 +39,8 @@ pub struct Options {
     pub out: Option<PathBuf>,
     pub binary: Option<PathBuf>,
     pub libs: Option<PathBuf>,
+    /// Lets GPL or non-free libraries into the package (local testing only).
+    pub allow_gpl: bool,
 }
 
 /// The update platform key of `target` on a machine with CPU `arch` (`std::env::consts::ARCH`).
@@ -118,10 +121,18 @@ pub fn run(root: &Path, options: &Options) -> Result<()> {
     std::fs::create_dir_all(&out).with_context(|| format!("creating {}", out.display()))?;
     let key = platform_key(options.target, std::env::consts::ARCH)?;
     match options.target {
-        Target::Macos => macos::build(root, &binary, &out, &version, key)?,
-        Target::Windows => {
-            nsis::build(root, &binary, &out, &version, key, options.libs.as_deref())?
-        }
+        Target::Macos => macos::build(root, &binary, &out, &version, key, options.allow_gpl)?,
+        Target::Windows => nsis::build(
+            root,
+            &binary,
+            &out,
+            &version,
+            key,
+            options.libs.as_deref(),
+            options.allow_gpl,
+        )?,
+        // The Ubuntu package bundles no libraries (it depends on the system libmpv), so the
+        // license gate has nothing to check there.
         Target::Ubuntu => deb::build(root, &binary, &out, &version, key)?,
     }
     let artifact = out.join(package_file_name(&version, key, update_extension(key)?));

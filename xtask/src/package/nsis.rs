@@ -2,6 +2,7 @@
 //! `makensis`. The installer is per user (no administrator rights) and installs silently
 //! with `/S`, which is how the app's updater runs it.
 
+use super::license::check_bundle_license;
 use super::{package_file_name, production_icon, run_tool, APP_NAME, BINARY_NAME, IDENTIFIER};
 use anyhow::{bail, Context, Result};
 use std::fs;
@@ -108,6 +109,7 @@ pub(super) fn build(
     version: &str,
     key: &str,
     libs: Option<&Path>,
+    allow_gpl: bool,
 ) -> Result<()> {
     let Some(libs) = libs else {
         bail!("--libs is required on Windows: the folder with libmpv-2.dll and the DLLs it needs");
@@ -121,6 +123,7 @@ pub(super) fn build(
     fs::copy(binary, stage.join(&exe_name))
         .with_context(|| format!("copying {}", binary.display()))?;
     let mut files = vec![exe_name];
+    let mut dlls = Vec::new();
     for entry in fs::read_dir(libs).with_context(|| format!("reading {}", libs.display()))? {
         let path = entry?.path();
         let is_dll = path
@@ -134,7 +137,11 @@ pub(super) fn build(
             fs::copy(&path, stage.join(&name))
                 .with_context(|| format!("copying {}", path.display()))?;
             files.push(name);
+            dlls.push(path);
         }
+    }
+    for warning in check_bundle_license(&dlls, allow_gpl)? {
+        println!("warning: {warning}");
     }
     if !files
         .iter()

@@ -66,6 +66,9 @@ enum Command {
         /// Windows only: the folder with libmpv-2.dll and the DLLs it needs.
         #[arg(long)]
         libs: Option<PathBuf>,
+        /// Local testing only: lets GPL or non-free libraries into the package, with a warning.
+        #[arg(long = "allow-gpl-for-local-testing")]
+        allow_gpl: bool,
     },
     LatestJson {
         #[arg(long)]
@@ -100,6 +103,7 @@ fn main() -> Result<()> {
             out,
             binary,
             libs,
+            allow_gpl,
         } => package::run(
             &root,
             &package::Options {
@@ -108,6 +112,7 @@ fn main() -> Result<()> {
                 out,
                 binary,
                 libs,
+                allow_gpl,
             },
         ),
         Command::Keygen { out } => keygen::run(&out),

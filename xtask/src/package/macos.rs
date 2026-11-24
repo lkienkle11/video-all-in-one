@@ -1,6 +1,7 @@
 //! The macOS package: `Video All-in-One.app` with its libraries inside, an ad-hoc signature,
 //! the zipped bundle (the update artifact) and a disk image.
 
+use super::license::check_bundle_license;
 use super::macos_libs::{self, Closure};
 use super::{package_file_name, production_icon, run_tool, APP_NAME, BINARY_NAME, IDENTIFIER};
 use anyhow::{bail, Context, Result};
@@ -56,6 +57,7 @@ pub(super) fn build(
     out: &Path,
     version: &str,
     key: &str,
+    allow_gpl: bool,
 ) -> Result<()> {
     let stage = out.join("stage-macos");
     if stage.exists() {
@@ -76,6 +78,10 @@ pub(super) fn build(
     make_writable_executable(&executable)?;
 
     let found = find_libraries(&executable)?;
+    let sources: Vec<PathBuf> = found.libraries.iter().map(|l| l.source.clone()).collect();
+    for warning in check_bundle_license(&sources, allow_gpl)? {
+        println!("warning: {warning}");
+    }
     for library in &found.libraries {
         let target = frameworks.join(&library.name);
         fs::copy(&library.source, &target)

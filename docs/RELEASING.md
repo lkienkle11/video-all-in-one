@@ -117,6 +117,10 @@ If the app cannot install an update itself, it downloads and verifies the file a
 - The macOS bundle contains the Homebrew build of libmpv and FFmpeg, which is built with GPL components (for example x264 and x265). Shipping those inside an MIT-licensed app needs a licence decision and a notice file before a public release. This pipeline does not add notice files yet.
 - The Ubuntu package depends on the system libmpv and does not ship it.
 
+### The license check of the packager
+
+`cargo xtask package` refuses to build a macOS or Windows package when a bundled library is a GPL or non-free build. It checks the FFmpeg configuration string inside every bundled library (`--enable-gpl`, `--enable-nonfree`) and the file names of the GPL codec libraries (`libx264`, `libx265`, `libxvid`, `libfdk-aac`, `libpostproc`). It does NOT check libmpv itself: libmpv has no marker the tool can read, so the maintainer must build it with GPL features disabled and say so in the release notes. The Homebrew libraries on the build machines are GPL builds, so a macOS release package cannot be produced from them until an LGPL libmpv and FFmpeg build is provided (a later task). The flag `--allow-gpl-for-local-testing` lets a local run pass with a warning; a package made with it must never be published, and the release workflow must never pass it (a test in `xtask` fails if a workflow file contains it). The Ubuntu package bundles no libraries, so nothing is checked there.
+
 ## Known limits
 
 - macOS minimum version: the bundled Homebrew libraries are built for the macOS version of the build machine (macOS 15 on the CI runners). `cargo xtask package` reads the real minimum from every file and writes the highest one into `LSMinimumSystemVersion`, so older systems get a clear refusal instead of a crash. The README therefore promises only a recent macOS. Supporting macOS 13 needs a libmpv built for macOS 13 (a later task).
