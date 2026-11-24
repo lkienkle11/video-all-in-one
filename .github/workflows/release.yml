@@ -1,0 +1,329 @@
+# Runs when a tag v* is pushed: checks the tag, tests and builds on every OS, packages, signs the
+# update artifacts, writes latest.json and publishes ONE GitHub Release.
+# The signing secret is available only to the signing step of the last job.
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  # Overrides rust-toolchain.toml (channel "stable") so every run uses the same compiler.
+  RUSTUP_TOOLCHAIN: "1.99.1"
+  # Windows only: libmpv for Windows from the LGPL build of zhongfly/mpv-winbuild.
+  MPV_WIN_URL: "https://github.com/zhongfly/mpv-winbuild/releases/download/2026-11-23-35efcf53d5/mpv-dev-lgpl-x86_64-20261123-git-35efcf53d5.7z"
+  MPV_WIN_SHA256: "029892b3c3951bbb738d05a338698d330e0682b767ff7c142a4da68da68c175a"
+
+jobs:
+  verify:
+    name: check the tag
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install the pinned Rust toolchain
+        run: rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal --no-self-update
+
+      - name: Cache cargo downloads and build output
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target
+          key: cargo-verify-${{ env.RUSTUP_TOOLCHAIN }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            cargo-verify-${{ env.RUSTUP_TOOLCHAIN }}-
+
+      - name: Find the latest published release
+        id: latest
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if output=$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName --jq .tagName 2>&1); then
+            echo "latest=${output#v}" >> "$GITHUB_OUTPUT"
+          elif echo "$output" | grep -q "release not found"; then
+            echo "latest=none" >> "$GITHUB_OUTPUT"
+          else
+            echo "could not read the latest release: $output"
+            exit 1
+          fi
+
+      - name: Tag must equal the version in the files and be higher than the latest release
+        env:
+          TAG: ${{ github.ref_name }}
+          LATEST: ${{ steps.latest.outputs.latest }}
+        run: cargo xtask check-release --tag "$TAG" --latest "$LATEST"
+
+  build:
+    name: build (${{ matrix.name }})
+    needs: verify
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macos-apple-silicon
+            os: macos-15
+            target: macos
+          - name: macos-intel
+            os: macos-15-intel
+            target: macos
+          - name: windows
+            os: windows-2025
+            target: windows
+          - name: ubuntu-22.04
+            os: ubuntu-22.04
+            target: ubuntu
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install the pinned Rust toolchain
+        run: rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal --no-self-update
+
+      - name: Cache cargo downloads and build output
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target
+          key: cargo-release-${{ matrix.os }}-${{ env.RUSTUP_TOOLCHAIN }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            cargo-release-${{ matrix.os }}-${{ env.RUSTUP_TOOLCHAIN }}-
+
+      # macOS: vaio-media links libmpv; .cargo/config.toml points the linker at the Homebrew folder.
+      - name: Install libmpv and FFmpeg (macOS)
+        if: runner.os == 'macOS'
+        env:
+          HOMEBREW_NO_INSTALL_CLEANUP: "1"
+        run: |
+          brew install mpv ffmpeg
+          xcrun metal --version || xcodebuild -downloadComponent MetalToolchain
+
+      # Ubuntu 22.04: libmpv1 0.34 and the libraries GPUI needs to build (list taken from Zed's script/linux).
+      - name: Install libmpv, FFmpeg and GPUI build libraries (Ubuntu)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential pkg-config clang cmake \
+            libmpv-dev ffmpeg \
+            libasound2-dev libfontconfig-dev libwayland-dev libx11-xcb-dev \
+            libxkbcommon-x11-dev libvulkan1 libzstd-dev
+
+      - name: Install FFmpeg (Windows)
+        if: runner.os == 'Windows'
+        run: choco install ffmpeg --no-progress -y
+
+      # Windows: unpack the pinned libmpv development package, check its SHA-256, and make an
+      # MSVC import library (mpv.lib) from the package's mpv.def so that the linker can use it.
+      - name: Install libmpv (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $archive = Join-Path $env:RUNNER_TEMP 'mpv-dev.7z'
+          $dir = Join-Path $env:RUNNER_TEMP 'mpv-dev'
+          Invoke-WebRequest -Uri $env:MPV_WIN_URL -OutFile $archive
+          $hash = (Get-FileHash $archive -Algorithm SHA256).Hash.ToLower()
+          if ($hash -ne $env:MPV_WIN_SHA256) { throw "mpv-dev archive has SHA-256 $hash, expected $env:MPV_WIN_SHA256" }
+          7z x $archive "-o$dir" -y | Out-Null
+          if (-not (Test-Path (Join-Path $dir 'libmpv-2.dll'))) { throw 'libmpv-2.dll is not in the archive' }
+          if (-not (Test-Path (Join-Path $dir 'mpv.def'))) { throw 'mpv.def is not in the archive' }
+          $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          $libexe = Get-ChildItem (Join-Path $vs 'VC\Tools\MSVC') -Recurse -Filter lib.exe | Where-Object { $_.FullName -match 'Hostx64\\x64' } | Select-Object -First 1
+          & $libexe.FullName "/def:$dir\mpv.def" /name:libmpv-2.dll "/out:$dir\mpv.lib" /MACHINE:X64
+          if ($LASTEXITCODE -ne 0) { throw 'lib.exe failed' }
+          "RUSTFLAGS=-L native=$dir" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+          "MPV_DIR=$dir" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+          $dir | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
+
+      - name: Test
+        run: cargo test --locked --workspace
+
+      # Never --workspace here: Cargo unifies features across the workspace and would turn
+      # every crate into a production build.
+      - name: Build the production app
+        env:
+          VAIO_UPDATE_MANIFEST_URL: https://github.com/${{ github.repository }}/releases/latest/download/latest.json
+        run: cargo build --locked --release -p vaio-desktop --features production
+
+      - name: Package (macOS)
+        if: matrix.target == 'macos'
+        run: cargo xtask package --target macos --out dist
+
+      - name: Package (Ubuntu)
+        if: matrix.target == 'ubuntu'
+        run: cargo xtask package --target ubuntu --out dist
+
+      - name: Package (Windows)
+        if: matrix.target == 'windows'
+        run: cargo xtask package --target windows --out dist --libs "$MPV_DIR"
+
+      # Smoke checks on the package that was just made. They show what the installer does on a
+      # clean runner; they are not a replacement for installing on a real machine.
+      - name: Check the app bundle (macOS)
+        if: matrix.target == 'macos'
+        run: |
+          app="dist/stage-macos/Video All-in-One.app"
+          codesign --verify --deep --strict "$app"
+          status=0
+          for file in "$app/Contents/MacOS/video-all-in-one" "$app"/Contents/Frameworks/*.dylib; do
+            if otool -L "$file" | tail -n +2 | grep -E "/opt/homebrew|/usr/local"; then
+              echo "::error::$file still points at the build machine"
+              status=1
+            fi
+          done
+          exit $status
+
+      - name: Start the app bundle for six seconds (macOS)
+        if: matrix.target == 'macos'
+        continue-on-error: true
+        run: |
+          unset LIBRARY_PATH
+          DYLD_LIBRARY_PATH= "dist/stage-macos/Video All-in-One.app/Contents/MacOS/video-all-in-one" &
+          pid=$!
+          sleep 6
+          kill -0 "$pid"
+          kill "$pid"
+
+      - name: Install and remove the .deb (Ubuntu)
+        if: matrix.target == 'ubuntu'
+        run: |
+          dpkg-deb --info dist/video-all-in-one-*-linux-x86_64.deb
+          dpkg-deb --contents dist/video-all-in-one-*-linux-x86_64.deb
+          if ldd target/release/vaio-desktop | grep "not found"; then
+            echo "::error::the app needs a library that is not installed"
+            exit 1
+          fi
+          sudo dpkg -i dist/video-all-in-one-*-linux-x86_64.deb
+          test -x /usr/bin/video-all-in-one
+          test -f /usr/share/applications/video-all-in-one.desktop
+          sudo dpkg -r video-all-in-one
+          test ! -e /usr/bin/video-all-in-one
+
+      - name: Install and remove the installer silently (Windows)
+        if: matrix.target == 'windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $installer = (Get-ChildItem dist\video-all-in-one-*-windows-x86_64.exe).FullName
+          Start-Process -FilePath $installer -ArgumentList '/S' -Wait
+          $dir = Join-Path $env:LOCALAPPDATA 'Programs\Video All-in-One'
+          if (-not (Test-Path (Join-Path $dir 'video-all-in-one.exe'))) { throw 'the app was not installed' }
+          if (-not (Test-Path (Join-Path $dir 'libmpv-2.dll'))) { throw 'libmpv-2.dll was not installed' }
+          # A silent install starts the app, as it does after an update.
+          Stop-Process -Name 'video-all-in-one' -Force -ErrorAction SilentlyContinue
+          Start-Sleep -Seconds 2
+          Start-Process -FilePath (Join-Path $dir 'uninstall.exe') -ArgumentList '/S' -Wait
+          Start-Sleep -Seconds 3
+          if (Test-Path (Join-Path $dir 'video-all-in-one.exe')) { throw 'the app was not removed' }
+
+      - name: Keep the installers and update artifacts
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: package-${{ matrix.name }}
+          path: dist/video-all-in-one-*
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: sign and publish
+    needs: [verify, build]
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install the pinned Rust toolchain
+        run: rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal --no-self-update
+
+      - name: Cache cargo downloads and build output
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target
+          key: cargo-verify-${{ env.RUSTUP_TOOLCHAIN }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            cargo-verify-${{ env.RUSTUP_TOOLCHAIN }}-
+
+      - name: Download the packages of every OS
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: package-*
+          merge-multiple: true
+          path: dist
+
+      # The key is read from the environment by xtask and is never printed.
+      - name: Sign the update artifacts
+        env:
+          UPDATE_SIGNING_KEY: ${{ secrets.UPDATE_SIGNING_KEY }}
+        run: |
+          set -eu
+          for pattern in macos-aarch64.zip macos-x86_64.zip windows-x86_64.exe linux-x86_64.deb; do
+            file=$(ls dist/video-all-in-one-*-"$pattern")
+            cargo xtask sign --file "$file"
+          done
+
+      # The public key is not a secret. It must be the key compiled into the app
+      # (crates/platform/src/update/public_key.rs); see docs/RELEASING.md.
+      - name: Write latest.json
+        env:
+          TAG: ${{ github.ref_name }}
+          PUBLIC_KEY: ${{ vars.UPDATE_PUBLIC_KEY }}
+        run: |
+          cargo xtask latest-json \
+            --version "${TAG#v}" \
+            --notes CHANGELOG.md \
+            --assets dist \
+            --base-url "https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}" \
+            --public-key "$PUBLIC_KEY" \
+            --require macos-aarch64,macos-x86_64,windows-x86_64,linux-x86_64
+          jq -r '"## English\n\n" + .notes_en + "\n\n## Tiếng Việt\n\n" + .notes_vi' dist/latest.json > release-notes.md
+
+      # A draft is filled first and published last, so nobody sees a release with missing files.
+      - name: Publish one GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "$TAG" dist/video-all-in-one-* dist/latest.json \
+            --draft --verify-tag --title "Video All-in-One ${TAG#v}" --notes-file release-notes.md
+          gh release edit "$TAG" --draft=false --latest

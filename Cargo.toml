@@ -1,0 +1,30 @@
+[workspace]
+members = ["crates/core", "crates/media", "crates/storage", "crates/platform", "apps/desktop", "xtask"]
+resolver = "2"
+
+[workspace.package]
+version = "0.0.0"
+edition = "2021"
+
+[workspace.dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+serde_json = "1"
+gpui-kit = "=0.11.0"
+proptest = "1"
+serde = { version = "1", features = ["derive"] }
+semver = { version = "1", features = ["serde"] }
+sha2 = "0.11"
+ed25519-dalek = "3"
+base64 = "0.23"
+getrandom = "0.3"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls"] }
+url = "2"
+resvg = { version = "0.50", default-features = false }
+libmpv2 = "7.0.1"
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "process", "io-util", "macros", "time", "sync"] }
+tokio-util = "0.7"
+libc = "0.2"
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_System_JobObjects", "Win32_System_Threading"] }
+tiny_http = "0.12"
+rusqlite = { version = "0.43", features = ["bundled"] }

@@ -1,0 +1,14 @@
+{
+  "schema": 1,
+  "version": "0.1.1",
+  "notes_en": "Fixes playback on macOS and clarifies the update dialog.",
+  "notes_vi": "Sửa lỗi phát trên macOS và làm rõ hộp thoại cập nhật.",
+  "assets": {
+    "macos-aarch64": {
+      "url": "https://example.com/releases/v0.1.1/video-all-in-one-0.1.1-macos-aarch64.zip",
+      "size": 12345,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "signature": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=="
+    }
+  }
+}

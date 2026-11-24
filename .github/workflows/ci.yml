@@ -1,0 +1,128 @@
+# Checks every pull request on macOS (Apple Silicon and Intel), Windows and Ubuntu 22.04.
+# The jobs are independent: one failing OS does not cancel or hide the others.
+name: CI
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  # Overrides rust-toolchain.toml (channel "stable") so every run uses the same compiler.
+  RUSTUP_TOOLCHAIN: "1.99.1"
+  # Windows only: libmpv for Windows from the LGPL build of zhongfly/mpv-winbuild.
+  MPV_WIN_URL: "https://github.com/zhongfly/mpv-winbuild/releases/download/2026-11-23-35efcf53d5/mpv-dev-lgpl-x86_64-20261123-git-35efcf53d5.7z"
+  MPV_WIN_SHA256: "029892b3c3951bbb738d05a338698d330e0682b767ff7c142a4da68da68c175a"
+
+jobs:
+  check:
+    name: check (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macos-apple-silicon
+            os: macos-15
+          - name: macos-intel
+            os: macos-15-intel
+          - name: windows
+            os: windows-2025
+          - name: ubuntu-22.04
+            os: ubuntu-22.04
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install the pinned Rust toolchain
+        run: rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal --component rustfmt --component clippy --no-self-update
+
+      - name: Cache cargo downloads and build output
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target
+          key: cargo-ci-${{ matrix.os }}-${{ env.RUSTUP_TOOLCHAIN }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            cargo-ci-${{ matrix.os }}-${{ env.RUSTUP_TOOLCHAIN }}-
+
+      # macOS: vaio-media links libmpv; .cargo/config.toml points the linker at the Homebrew folder.
+      - name: Install libmpv and FFmpeg (macOS)
+        if: runner.os == 'macOS'
+        env:
+          HOMEBREW_NO_INSTALL_CLEANUP: "1"
+        run: |
+          brew install mpv ffmpeg
+          xcrun metal --version || xcodebuild -downloadComponent MetalToolchain
+
+      # Ubuntu 22.04: libmpv1 0.34 and the libraries GPUI needs to build (list taken from Zed's script/linux).
+      - name: Install libmpv, FFmpeg and GPUI build libraries (Ubuntu)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential pkg-config clang cmake \
+            libmpv-dev ffmpeg \
+            libasound2-dev libfontconfig-dev libwayland-dev libx11-xcb-dev \
+            libxkbcommon-x11-dev libvulkan1 libzstd-dev
+
+      - name: Install FFmpeg (Windows)
+        if: runner.os == 'Windows'
+        run: choco install ffmpeg --no-progress -y
+
+      # Windows: unpack the pinned libmpv development package, check its SHA-256, and make an
+      # MSVC import library (mpv.lib) from the package's mpv.def so that the linker can use it.
+      - name: Install libmpv (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $archive = Join-Path $env:RUNNER_TEMP 'mpv-dev.7z'
+          $dir = Join-Path $env:RUNNER_TEMP 'mpv-dev'
+          Invoke-WebRequest -Uri $env:MPV_WIN_URL -OutFile $archive
+          $hash = (Get-FileHash $archive -Algorithm SHA256).Hash.ToLower()
+          if ($hash -ne $env:MPV_WIN_SHA256) { throw "mpv-dev archive has SHA-256 $hash, expected $env:MPV_WIN_SHA256" }
+          7z x $archive "-o$dir" -y | Out-Null
+          if (-not (Test-Path (Join-Path $dir 'libmpv-2.dll'))) { throw 'libmpv-2.dll is not in the archive' }
+          if (-not (Test-Path (Join-Path $dir 'mpv.def'))) { throw 'mpv.def is not in the archive' }
+          $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          $libexe = Get-ChildItem (Join-Path $vs 'VC\Tools\MSVC') -Recurse -Filter lib.exe | Where-Object { $_.FullName -match 'Hostx64\\x64' } | Select-Object -First 1
+          & $libexe.FullName "/def:$dir\mpv.def" /name:libmpv-2.dll "/out:$dir\mpv.lib" /MACHINE:X64
+          if ($LASTEXITCODE -ne 0) { throw 'lib.exe failed' }
+          "RUSTFLAGS=-L native=$dir" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+          $dir | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
+
+      - name: Format
+        run: cargo fmt --check
+
+      - name: Clippy
+        run: cargo clippy --locked --workspace --all-targets -- -D warnings
+
+      - name: Test
+        run: cargo test --locked --workspace
+
+      - name: Language share
+        run: cargo xtask lang-share --min 85
+
+      - name: Structure
+        run: cargo xtask check-structure
+
+      - name: App icons are current
+        if: runner.os == 'Linux'
+        run: cargo xtask icons --check

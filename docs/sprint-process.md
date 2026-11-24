@@ -41,17 +41,17 @@ Release: v0.1.0, then v0.1.1 to prove the update. Status: `todo`.
 | 1.1 | Cargo workspace; empty GPUI window builds on three OS | done |
 | 1.1b | Architecture map and placement rules (`docs/architecture.md`) and `cargo xtask check-structure` (crate dependency direction, forbidden names, file and folder size, map must match the real tree) | done |
 | 1.2 | Lock GPUI and GPUI Kit versions | done |
-| 1.3 | Player spike (4 candidates, real playback with sound, thumbnails strip, FFmpeg in background) | todo |
-| 1.4 | Dev and production channel split | in progress (code and tests done; build and release switch in 1R-b) |
-| 1.5 | `set-version` and tag checks (Rust `xtask`) | todo |
-| 1.6 | Signing key pair and GitHub Secrets | todo |
-| 1.7 | Release workflow and `latest.json` | todo |
-| 1.8 | Updater module and per-OS install steps | todo |
-| 1.9 | Settings: version and update states, update dialog | todo |
-| 1.10 | Bilingual CHANGELOG and `docs/RELEASING.md` | todo |
-| 1.11 | CI on three OS plus the 85% Rust check | todo |
-| 1.12 | Localization layer, language modal on first launch, language setting, shared modal behavior | in progress (string tables and settings model done; modal, picker and Settings screen in Task 9) |
-| 1.13 | English `README.md` | todo |
+| 1.3 | Player spike: libmpv chosen for macOS, tentative (Windows and Linux packaging checked in CI); the adapter is built and tested | done (conditions open: see `docs/spikes/2026-11-player-spike.md`) |
+| 1.4 | Dev and production channel split | done (release workflow builds with `--features production`) |
+| 1.5 | `set-version` and tag checks (Rust `xtask`) | done |
+| 1.6 | Signing key pair and GitHub Secrets | blocked: needs the user (`cargo xtask keygen`, secret, repository variable, tag protection; steps in `docs/RELEASING.md`) |
+| 1.7 | Release workflow and `latest.json` | in progress (workflow written, not run on GitHub) |
+| 1.8 | Updater module and per-OS install steps | in progress (service, HTTP backend, install code and the app wiring done; a real update on each OS not proven; needs the signing key) |
+| 1.9 | Settings: version and update states, update dialog | done (connected to the updater in the production channel; refuses until a real public key is set) |
+| 1.10 | Bilingual CHANGELOG and `docs/RELEASING.md` | done |
+| 1.11 | CI on three OS plus the 85% Rust check | in progress (workflow written, not run) |
+| 1.12 | Localization layer, language modal on first launch, language setting, shared modal behavior | done (manual look in a window not done) |
+| 1.13 | English `README.md` | done (licence file not created yet) |
 | 1.14 | GitHub About (description, topics), with permission | todo |
 
 Done when: v0.1.0 is installed from the published installer; tag v0.1.1 is pushed; the installed app finds it, downloads, verifies, installs and restarts. The development build never calls the update endpoint. The player spike result is written down.
@@ -62,15 +62,15 @@ Release: v0.2.0. Status: `todo`.
 
 | # | Work | Status |
 |---|------|--------|
-| 2.1 | Binary resolver (configured folder, then `PATH`) with a clear missing-tool message | todo |
-| 2.2 | Process runner: spawn, progress, cancel including children, no orphans | todo |
-| 2.3 | SQLite: WAL, first migration, backup before migrate, refuse newer schema | todo |
-| 2.4 | Persistent Job Queue (S02): states, transitions, persist before run, recover after restart, retry, cancel, limits | todo |
-| 2.5 | Source analysis with FFprobe | todo |
-| 2.6 | Workspace shell: toolbar, sources, preview, inspector, timeline placeholder, job queue panel | todo |
-| 2.7 | Local Video Cutting (F01) with segment normalization | in progress (time parsing and segment normalization done) |
-| 2.8 | Multi-Segment Export (F08): separate or merged, Fast and Precise cut, export verification | todo |
-| 2.9 | Basic Batch (S01) | todo |
+| 2.1 | Binary resolver (configured folder, then `PATH`) with a clear missing-tool message | done |
+| 2.2 | Process runner: spawn, progress, cancel including children, no orphans | done (Windows job object unproven) |
+| 2.3 | SQLite: WAL, first migration, backup before migrate, refuse newer schema | done |
+| 2.4 | Persistent Job Queue (S02): states, transitions, persist before run, recover after restart, retry, cancel, limits | done (kill test passes) |
+| 2.5 | Source analysis with FFprobe | done |
+| 2.6 | Workspace shell: toolbar, sources, preview, inspector, timeline placeholder, job queue panel | done (manual look not done) |
+| 2.7 | Local Video Cutting (F01) with segment normalization | done (manual look not done) |
+| 2.8 | Multi-Segment Export (F08): separate or merged, Fast and Precise cut, export verification | done |
+| 2.9 | Basic Batch (S01) | done (manual look not done) |
 
 Done when: three segments of a local video export merged into one correct file; the app is killed mid-job and reopened, and the job shows as failed with a readable reason while the queue still works; installs of v0.1.x update to v0.2.0 by themselves.
 
