@@ -75,6 +75,10 @@ enum Command {
         /// macOS and Ubuntu: the folder of our own libmpv build (`cargo xtask libmpv build`).
         #[arg(long)]
         libmpv_dir: Option<PathBuf>,
+        /// The CPU of the executable (`aarch64` or `x86_64`) when it differs from this machine's,
+        /// for a binary cross-compiled on another Mac; it decides the platform key of the package.
+        #[arg(long)]
+        arch: Option<String>,
         /// Local testing only: lets GPL or non-free libraries into the package, with a warning.
         #[arg(long = "allow-gpl-for-local-testing")]
         allow_gpl: bool,
@@ -113,6 +117,7 @@ fn main() -> Result<()> {
             binary,
             libs,
             libmpv_dir,
+            arch,
             allow_gpl,
         } => package::run(
             &root,
@@ -123,6 +128,7 @@ fn main() -> Result<()> {
                 binary,
                 libs,
                 libmpv_dir,
+                arch,
                 allow_gpl,
             },
         ),
