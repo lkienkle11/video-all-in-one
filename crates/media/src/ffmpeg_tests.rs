@@ -31,13 +31,16 @@ impl Fixture {
         ));
         fs::create_dir(&dir).unwrap();
         let tools = FfmpegPaths {
-            ffmpeg: "/opt/homebrew/bin/ffmpeg".into(),
-            ffprobe: "/opt/homebrew/bin/ffprobe".into(),
+            ffmpeg: "ffmpeg".into(),
+            ffprobe: "ffprobe".into(),
         };
         for tool in [&tools.ffmpeg, &tools.ffprobe] {
             assert!(
-                tool.is_file(),
-                "required media tool is missing: {}",
+                Command::new(tool)
+                    .arg("-version")
+                    .output()
+                    .is_ok_and(|output| output.status.success()),
+                "required media tool is missing or not runnable: {}",
                 tool.display()
             );
         }

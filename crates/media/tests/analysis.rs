@@ -4,8 +4,8 @@ use vaio_media::{analysis::analyze_source, ffmpeg::FfmpegPaths};
 
 fn tools() -> FfmpegPaths {
     FfmpegPaths {
-        ffmpeg: "/opt/homebrew/bin/ffmpeg".into(),
-        ffprobe: "/opt/homebrew/bin/ffprobe".into(),
+        ffmpeg: "ffmpeg".into(),
+        ffprobe: "ffprobe".into(),
     }
 }
 

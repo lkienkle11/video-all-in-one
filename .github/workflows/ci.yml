@@ -15,6 +15,9 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
+  # Faster CI builds: no incremental state to save and no debug info to write or link.
+  CARGO_INCREMENTAL: "0"
+  CARGO_PROFILE_DEV_DEBUG: "0"
   # Overrides rust-toolchain.toml (channel "stable") so every run uses the same compiler.
   RUSTUP_TOOLCHAIN: "1.99.1"
   # Windows only: libmpv for Windows from the LGPL build of zhongfly/mpv-winbuild.
@@ -22,22 +25,17 @@ env:
   MPV_WIN_SHA256: "029892b3c3951bbb738d05a338698d330e0682b767ff7c142a4da68da68c175a"
 
 jobs:
+  # Each OS runs two jobs side by side (lint and test), so a run takes as long as the slower one
+  # and not the sum of both. Every job must finish in under 10 minutes on a cold cache.
   check:
-    name: check (${{ matrix.name }})
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 90
+    name: ${{ matrix.task }} (${{ matrix.target }})
+    runs-on: ${{ fromJSON('{"macos-apple-silicon":"macos-15","macos-intel":"macos-15-intel","windows":"windows-2025","ubuntu-22.04":"ubuntu-22.04"}')[matrix.target] }}
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - name: macos-apple-silicon
-            os: macos-15
-          - name: macos-intel
-            os: macos-15-intel
-          - name: windows
-            os: windows-2025
-          - name: ubuntu-22.04
-            os: ubuntu-22.04
+        target: [macos-apple-silicon, macos-intel, windows, ubuntu-22.04]
+        task: [lint, test]
     defaults:
       run:
         shell: bash
@@ -58,9 +56,9 @@ jobs:
             ~/.cargo/registry/cache
             ~/.cargo/git/db
             target
-          key: cargo-ci-${{ matrix.os }}-${{ env.RUSTUP_TOOLCHAIN }}-${{ hashFiles('Cargo.lock') }}
+          key: cargo-ci-${{ matrix.task }}-${{ matrix.target }}-${{ env.RUSTUP_TOOLCHAIN }}-${{ hashFiles('Cargo.lock') }}
           restore-keys: |
-            cargo-ci-${{ matrix.os }}-${{ env.RUSTUP_TOOLCHAIN }}-
+            cargo-ci-${{ matrix.task }}-${{ matrix.target }}-${{ env.RUSTUP_TOOLCHAIN }}-
 
       # macOS: vaio-media links libmpv; .cargo/config.toml points the linker at the Homebrew folder.
       - name: Install libmpv and FFmpeg (macOS)
@@ -116,20 +114,25 @@ jobs:
           $dir | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
 
       - name: Format
+        if: matrix.task == 'lint'
         run: cargo fmt --check
 
       - name: Clippy
+        if: matrix.task == 'lint'
         run: cargo clippy --locked --workspace --all-targets -- -D warnings
 
       - name: Test
+        if: matrix.task == 'test'
         run: cargo test --locked --workspace
 
       - name: Language share
+        if: matrix.task == 'lint'
         run: cargo xtask lang-share --min 85
 
       - name: Structure
+        if: matrix.task == 'lint'
         run: cargo xtask check-structure
 
       - name: App icons are current
-        if: runner.os == 'Linux'
+        if: matrix.task == 'lint' && runner.os == 'Linux'
         run: cargo xtask icons --check

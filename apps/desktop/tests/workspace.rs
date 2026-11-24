@@ -53,8 +53,8 @@ fn open(
             AppState::new(
                 runtime().handle().clone(),
                 Some(FfmpegPaths {
-                    ffmpeg: "/opt/homebrew/bin/ffmpeg".into(),
-                    ffprobe: "/opt/homebrew/bin/ffprobe".into(),
+                    ffmpeg: "ffmpeg".into(),
+                    ffprobe: "ffprobe".into(),
                 }),
                 rx,
             )
@@ -116,7 +116,7 @@ async fn adding_a_local_file_lists_it_with_duration(cx: &mut TestAppContext) {
     let fixture = path.clone();
     runtime()
         .spawn_blocking(move || {
-            assert!(std::process::Command::new("/opt/homebrew/bin/ffmpeg")
+            assert!(std::process::Command::new("ffmpeg")
                 .args([
                     "-v",
                     "error",

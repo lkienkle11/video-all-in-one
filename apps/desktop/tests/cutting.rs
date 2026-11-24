@@ -40,8 +40,8 @@ fn runtime() -> &'static Runtime {
 
 fn tools() -> FfmpegPaths {
     FfmpegPaths {
-        ffmpeg: "/opt/homebrew/bin/ffmpeg".into(),
-        ffprobe: "/opt/homebrew/bin/ffprobe".into(),
+        ffmpeg: "ffmpeg".into(),
+        ffprobe: "ffprobe".into(),
     }
 }
 

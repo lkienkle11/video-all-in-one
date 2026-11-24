@@ -17,6 +17,9 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
+  # Faster builds: no incremental state to save and no debug info in test builds.
+  CARGO_INCREMENTAL: "0"
+  CARGO_PROFILE_DEV_DEBUG: "0"
   # Overrides rust-toolchain.toml (channel "stable") so every run uses the same compiler.
   RUSTUP_TOOLCHAIN: "1.99.1"
   # Windows only: libmpv for Windows from the LGPL build of zhongfly/mpv-winbuild.

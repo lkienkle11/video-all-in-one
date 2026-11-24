@@ -59,8 +59,8 @@ fn runner(payload: String) -> (FfmpegExportRunner, Job) {
 }
 fn tools() -> FfmpegPaths {
     FfmpegPaths {
-        ffmpeg: "/opt/homebrew/bin/ffmpeg".into(),
-        ffprobe: "/opt/homebrew/bin/ffprobe".into(),
+        ffmpeg: "ffmpeg".into(),
+        ffprobe: "ffprobe".into(),
     }
 }
 struct Fixture {

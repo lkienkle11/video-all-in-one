@@ -40,10 +40,17 @@ fn runtime() -> &'static Runtime {
     RUNTIME.get_or_init(|| Runtime::new().unwrap())
 }
 
+/// The real executables found on `PATH` (the tests link to them, so a plain name is not enough).
 fn real_tools() -> FfmpegPaths {
+    fn find(name: &str) -> PathBuf {
+        std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default())
+            .map(|dir| dir.join(name))
+            .find(|candidate| candidate.is_file())
+            .unwrap_or_else(|| panic!("{name} is not on PATH"))
+    }
     FfmpegPaths {
-        ffmpeg: "/opt/homebrew/bin/ffmpeg".into(),
-        ffprobe: "/opt/homebrew/bin/ffprobe".into(),
+        ffmpeg: find("ffmpeg"),
+        ffprobe: find("ffprobe"),
     }
 }
 

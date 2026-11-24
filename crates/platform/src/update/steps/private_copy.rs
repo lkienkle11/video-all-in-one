@@ -1,13 +1,17 @@
 //! Private, exclusive copies of a staged file. The caller hashes and uses the copy,
 //! never the original, so a swap of the original after verification changes nothing.
-use crate::update::{install_error, verify_staged};
+use crate::update::install_error;
+#[cfg(any(target_os = "macos", target_os = "windows", test))]
+use crate::update::verify_staged;
 use std::{
     fs::{self, OpenOptions},
     io::{self, Read, Write},
     path::{Path, PathBuf},
     sync::atomic::{AtomicU64, Ordering},
 };
-use vaio_core::update::{StagedFile, UpdateError};
+#[cfg(any(target_os = "macos", target_os = "windows", test))]
+use vaio_core::update::StagedFile;
+use vaio_core::update::UpdateError;
 
 static NEXT: AtomicU64 = AtomicU64::new(0);
 

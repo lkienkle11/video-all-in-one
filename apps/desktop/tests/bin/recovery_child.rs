@@ -30,8 +30,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let runner = Arc::new(FfmpegExportRunner::new(
             store.clone(),
             FfmpegPaths {
-                ffmpeg: "/opt/homebrew/bin/ffmpeg".into(),
-                ffprobe: "/opt/homebrew/bin/ffprobe".into(),
+                ffmpeg: "ffmpeg".into(),
+                ffprobe: "ffprobe".into(),
             },
         ));
         let (events, mut receiver) = tokio::sync::mpsc::unbounded_channel();
