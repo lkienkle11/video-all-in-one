@@ -1,5 +1,7 @@
+#[cfg(unix)]
+use super::apply::{DebRequest, HelperRequest};
 use super::{
-    apply::{parse, settle, swap_bundle, wait_for_exit, DebRequest, HelperRequest},
+    apply::{parse, settle, swap_bundle, wait_for_exit},
     install_linux, install_macos, install_windows,
     steps::recovery::{read_marker, ERROR_FILE},
     verify_staged,

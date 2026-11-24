@@ -68,6 +68,7 @@ fn path_var(dirs: &[&Path]) -> std::ffi::OsString {
 
 /// The path from `base` to `target` using `..` where needed, so a relative
 /// PATH entry can point at a temporary folder.
+#[cfg(unix)]
 fn relative_from(base: &Path, target: &Path) -> PathBuf {
     let base: Vec<_> = base.components().collect();
     let target: Vec<_> = target.components().collect();
