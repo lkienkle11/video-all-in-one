@@ -450,3 +450,14 @@ An independent read-only review (Sonnet 5.5) found no memory-safety bug and no l
 - The explanation "long GOP" for the slower seeks is a guess: no GOP length or `hwdec-current` was probed. Codec of the fixtures is H.264 (libx264); whether VideoToolbox was used is unknown.
 - The picture is always rendered at a fixed 1280x720 surface, not at the real window size. `target_time` and `report_swap` are not used, so display-sync timing is untested.
 - Fixed after the review: a failed `playback-time` read no longer drops the only matching frame (retried up to 50 x 2 ms). The 1 ms `seeking` poll is a sleep loop, contrary to the earlier "no sleep-based polling" sentence.
+
+## Decision (2026-11-24, user-approved)
+
+**libmpv is the player engine for macOS, tentatively.** Evidence: real picture and sound confirmed by the user; frame rate follows the file (24, 30, 60, variable); headless exact seeks 30-553 ms; 144-165 MiB peak. Open conditions:
+1. Windows and Linux packaging of libmpv (size, licence: mpv is GPL by default, an LGPL build is needed for a non-GPL app) is checked in CI in Task 1R-b. If it cannot be packaged on one OS, switch to the FFmpeg-plus-audio candidate (Task 3b); do not fall back to still images.
+2. Re-measure with real 1080p and 4K files, real codecs, and a surface that follows the window size.
+3. Seeks on long-GOP files above 500 ms (24 fps file: 553 ms) are a known risk for the timeline.
+
+Rejected for now: `alhazen-gpui` (needs gpui 0.2.2, the pinned GPUI Kit uses gpui-pre 0.3.14, so its views cannot be embedded); FFmpeg libraries plus an audio crate (kept as the fallback).
+
+The port is `VideoPlayer` in `crates/core/src/ports/player.rs` (RGBA `Frame`, exact `seek`). The libmpv adapter in `crates/media/src/player/` is not written yet: it needs the `libmpv2` crate, which the orchestrator must fetch first.

@@ -37,7 +37,7 @@ apps/desktop | Presents the desktop interface and connects it to application ser
 crates/core | Defines domain policy, services and ports independently of adapters.
 crates/core/src/domain | Holds the core domain types: media timestamps, job identity, job kinds, job states and the job transition rules.
 crates/core/src/i18n | Holds the languages, UI text keys and English and Vietnamese string tables.
-crates/core/src/ports | Declares the traits the core needs from adapters, such as the update backend and the artifact verifier.
+crates/core/src/ports | Declares the traits the core needs from adapters, such as the update backend, the artifact verifier, the job store and the video player.
 crates/core/src/services | Turns segments and a cut mode into the FFmpeg steps, support files and outputs of an export, without running any process.
 crates/core/src/update | Parses and validates the update manifest and decides whether a newer version is offered, without I/O.
 crates/media | Implements media processing and playback integrations.
