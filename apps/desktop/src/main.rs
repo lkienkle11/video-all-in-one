@@ -4,6 +4,9 @@ use vaio_desktop::app::AppView;
 use vaio_platform::channel::Channel;
 
 fn main() {
+    if let Some(code) = vaio_platform::update::handle_apply_update(std::env::args_os().skip(1)) {
+        std::process::exit(code);
+    }
     gpui_kit::application()
         .with_assets(gpui_kit::assets::Assets)
         .run(|cx| {
