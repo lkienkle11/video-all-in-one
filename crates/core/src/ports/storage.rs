@@ -39,7 +39,7 @@ impl fmt::Display for StoreError {
 impl Error for StoreError {}
 
 /// Durable storage for jobs. Every call is complete when it returns.
-pub trait JobStore {
+pub trait JobStore: Send + Sync {
     /// Stores a new queued job and returns its identifier.
     fn insert(&self, kind: JobKind, payload: &str) -> Result<JobId, StoreError>;
 

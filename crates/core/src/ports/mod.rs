@@ -1,5 +1,7 @@
 //! Ports: the traits the core needs from adapters, declared in the core's own language.
 
+pub mod events;
+pub mod export_runner;
 pub mod player;
 #[cfg(test)]
 mod player_tests;
