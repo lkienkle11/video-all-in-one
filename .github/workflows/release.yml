@@ -95,15 +95,22 @@ jobs:
           - name: macos-apple-silicon
             os: macos-15
             target: macos
+            libmpv: macos-arm64
+          # The Intel build is cross-compiled on the Apple Silicon runner: a cold build of the
+          # whole workspace on the Intel runner takes about 20 minutes, on this one about 6.
           - name: macos-intel
-            os: macos-15-intel
+            os: macos-15
             target: macos
+            libmpv: macos-x86_64
+            rust_target: x86_64-apple-darwin
+            arch: x86_64
           - name: windows
             os: windows-2025
             target: windows
           - name: ubuntu-22.04
             os: ubuntu-22.04
             target: ubuntu
+            libmpv: linux-x86_64
     defaults:
       run:
         shell: bash
@@ -133,13 +140,15 @@ jobs:
       # RUSTFLAGS replaces the Homebrew entries of .cargo/config.toml, which stay for local work.
       - name: Install the pinned libmpv (macOS and Ubuntu)
         if: runner.os != 'Windows'
+        env:
+          PLATFORM: ${{ matrix.libmpv }}
         run: |
           set -eu
-          case "$RUNNER_OS-$RUNNER_ARCH" in
-            Linux-X64) platform=linux-x86_64; want="$LIBMPV_SHA256_LINUX_X86_64" ;;
-            macOS-ARM64) platform=macos-arm64; want="$LIBMPV_SHA256_MACOS_ARM64" ;;
-            macOS-X64) platform=macos-x86_64; want="$LIBMPV_SHA256_MACOS_X86_64" ;;
-            *) echo "::error::there is no libmpv build for $RUNNER_OS $RUNNER_ARCH"; exit 1 ;;
+          case "$PLATFORM" in
+            linux-x86_64) platform=linux-x86_64; want="$LIBMPV_SHA256_LINUX_X86_64" ;;
+            macos-arm64) platform=macos-arm64; want="$LIBMPV_SHA256_MACOS_ARM64" ;;
+            macos-x86_64) platform=macos-x86_64; want="$LIBMPV_SHA256_MACOS_X86_64" ;;
+            *) echo "::error::there is no libmpv build for $PLATFORM"; exit 1 ;;
           esac
           case "$want" in
             PENDING*)
@@ -223,8 +232,8 @@ jobs:
           "MPV_DIR=$dir" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
           $dir | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
 
-      - name: Test
-        run: cargo test --locked --workspace
+      # No tests here: ci.yml runs every test on every pull request and on every push to main, and
+      # a release is tagged on a commit that passed it. Running them again doubled the build time.
 
       # Never --workspace here: Cargo unifies features across the workspace and would turn
       # every crate into a production build.
@@ -238,15 +247,34 @@ jobs:
           if [ "$RUNNER_OS" = Linux ]; then
             export RUSTFLAGS="-L native=$LIBMPV_DIR/lib -C link-arg=-Wl,-rpath-link,$LIBMPV_DIR/lib -C link-arg=-Wl,-rpath,\$ORIGIN/../lib/video-all-in-one"
           fi
-          cargo build --locked --release -p vaio-desktop --features production
+          if [ -n "${{ matrix.rust_target }}" ]; then
+            rustup target add "${{ matrix.rust_target }}"
+            export PKG_CONFIG_ALLOW_CROSS=1
+            cargo build --locked --release --target "${{ matrix.rust_target }}" -p vaio-desktop --features production
+          else
+            cargo build --locked --release -p vaio-desktop --features production
+          fi
 
       - name: Package (macOS)
         if: matrix.target == 'macos'
-        run: cargo xtask package --target macos --out dist --libmpv-dir "$LIBMPV_DIR"
+        run: |
+          if [ -n "${{ matrix.rust_target }}" ]; then
+            cargo xtask package --target macos --out dist --libmpv-dir "$LIBMPV_DIR" \
+              --arch "${{ matrix.arch }}" --binary "target/${{ matrix.rust_target }}/release/vaio-desktop"
+          else
+            cargo xtask package --target macos --out dist --libmpv-dir "$LIBMPV_DIR"
+          fi
 
       - name: Package (Ubuntu)
         if: matrix.target == 'ubuntu'
         run: cargo xtask package --target ubuntu --out dist --libmpv-dir "$LIBMPV_DIR"
+
+      - name: Install NSIS (Windows)
+        if: matrix.target == 'windows'
+        shell: pwsh
+        run: |
+          choco install nsis --no-progress -y
+          "C:\Program Files (x86)\NSIS" | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
 
       - name: Package (Windows)
         if: matrix.target == 'windows'
@@ -268,8 +296,9 @@ jobs:
           done
           exit $status
 
+      # The cross-built Intel app cannot start on the Apple Silicon runner without Rosetta.
       - name: Start the app bundle for six seconds (macOS)
-        if: matrix.target == 'macos'
+        if: matrix.target == 'macos' && matrix.rust_target == ''
         continue-on-error: true
         run: |
           unset LIBRARY_PATH

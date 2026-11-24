@@ -42,8 +42,15 @@ pub struct Options {
     pub libs: Option<PathBuf>,
     /// macOS and Ubuntu: the folder of our own libmpv build.
     pub libmpv_dir: Option<PathBuf>,
+    /// The CPU of a cross-compiled executable (`aarch64` or `x86_64`); this machine's when unset.
+    pub arch: Option<String>,
     /// Lets GPL or non-free libraries into the package (local testing only).
     pub allow_gpl: bool,
+}
+
+/// The CPU the package is for: the `--arch` value, or this machine's.
+pub fn effective_arch(arg: Option<&str>) -> &str {
+    arg.unwrap_or(std::env::consts::ARCH)
 }
 
 /// The update platform key of `target` on a machine with CPU `arch` (`std::env::consts::ARCH`).
@@ -122,7 +129,7 @@ pub fn run(root: &Path, options: &Options) -> Result<()> {
         .clone()
         .unwrap_or_else(|| root.join("target/package"));
     std::fs::create_dir_all(&out).with_context(|| format!("creating {}", out.display()))?;
-    let key = platform_key(options.target, std::env::consts::ARCH)?;
+    let key = platform_key(options.target, effective_arch(options.arch.as_deref()))?;
     match options.target {
         Target::Macos => macos::build(
             root,
@@ -190,4 +197,23 @@ pub(crate) fn run_tool(command: &mut Command) -> Result<()> {
         bail!("{program} failed with {status}");
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod arch_tests {
+    use super::{effective_arch, platform_key, Target};
+
+    #[test]
+    fn an_explicit_arch_decides_the_platform_key() {
+        assert_eq!(effective_arch(Some("x86_64")), "x86_64");
+        assert_eq!(effective_arch(None), std::env::consts::ARCH);
+        assert_eq!(
+            platform_key(Target::Macos, effective_arch(Some("x86_64"))).unwrap(),
+            "macos-x86_64"
+        );
+        assert_eq!(
+            platform_key(Target::Macos, effective_arch(Some("aarch64"))).unwrap(),
+            "macos-aarch64"
+        );
+    }
 }
