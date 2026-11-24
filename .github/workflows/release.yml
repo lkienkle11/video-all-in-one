@@ -7,6 +7,10 @@ on:
   push:
     tags:
       - "v*"
+    # Every push to main also builds and packages (nothing is signed or published). That checks
+    # that the installers still build, and it fills the build cache of the default branch, which a
+    # tag run can use: a tagged release then compiles only what changed.
+    branches: [main]
   # A manual run builds and packages on every OS but signs and publishes nothing: it tries the
   # installers without making a tag.
   workflow_dispatch:
@@ -136,9 +140,9 @@ jobs:
             ~/.cargo/registry/cache
             ~/.cargo/git/db
             target
-          key: cargo-release-${{ matrix.os }}-${{ env.RUSTUP_TOOLCHAIN }}-${{ hashFiles('Cargo.lock') }}
+          key: cargo-release-${{ matrix.name }}-${{ env.RUSTUP_TOOLCHAIN }}-${{ hashFiles('Cargo.lock') }}
           restore-keys: |
-            cargo-release-${{ matrix.os }}-${{ env.RUSTUP_TOOLCHAIN }}-
+            cargo-release-${{ matrix.name }}-${{ env.RUSTUP_TOOLCHAIN }}-
 
       # macOS and Ubuntu: our own LGPL libmpv from the release libmpv-1 (built by
       # build-libmpv.yml). The archive is checked against the pinned SHA-256 before it is unpacked.
@@ -182,30 +186,21 @@ jobs:
             echo "RUSTFLAGS=$flags"
           } >> "$GITHUB_ENV"
 
-      # The tests use the ffmpeg command. This build is only a test tool and is never shipped.
-      - name: Install the FFmpeg command and the build tools (macOS)
+      # GPUI compiles Metal shaders. (No ffmpeg here: the release runs no tests.)
+      - name: Install the build tools (macOS)
         if: runner.os == 'macOS'
-        env:
-          HOMEBREW_NO_INSTALL_CLEANUP: "1"
-        run: |
-          brew install ffmpeg
-          xcrun metal --version || xcodebuild -downloadComponent MetalToolchain
+        run: xcrun metal --version || xcodebuild -downloadComponent MetalToolchain
 
-      # Ubuntu 22.04: the libraries GPUI needs to build (list taken from Zed's script/linux) and
-      # the ffmpeg command for the tests. libmpv comes from our own build, not from apt.
-      - name: Install FFmpeg and GPUI build libraries (Ubuntu)
+      # Ubuntu 22.04: the libraries GPUI needs to build (list taken from Zed's script/linux).
+      # libmpv comes from our own build, not from apt.
+      - name: Install the GPUI build libraries (Ubuntu)
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             build-essential pkg-config clang cmake \
-            ffmpeg \
             libasound2-dev libfontconfig-dev libwayland-dev libx11-xcb-dev \
             libxkbcommon-x11-dev libvulkan1 libzstd-dev
-
-      - name: Install FFmpeg (Windows)
-        if: runner.os == 'Windows'
-        run: choco install ffmpeg --no-progress -y
 
       # Windows: unpack the pinned libmpv development package, check its SHA-256, and make an
       # MSVC import library (mpv.lib) from the DLL's export list so that the linker can use it.
@@ -344,15 +339,22 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $installer = (Get-ChildItem dist\video-all-in-one-*-windows-x86_64.exe).FullName
-          Start-Process -FilePath $installer -ArgumentList '/S' -Wait
+          # Not `Start-Process -Wait`: it also waits for every process the started one launches,
+          # and the installer starts the app and leaves it running, so it never returned.
+          $install = Start-Process -FilePath $installer -ArgumentList '/S' -PassThru
+          if (-not $install.WaitForExit(180000)) { $install.Kill(); throw 'the installer did not finish in three minutes' }
+          if ($install.ExitCode -ne 0) { throw "the installer exited with code $($install.ExitCode)" }
           $dir = Join-Path $env:LOCALAPPDATA 'Programs\Video All-in-One'
           if (-not (Test-Path (Join-Path $dir 'video-all-in-one.exe'))) { throw 'the app was not installed' }
           if (-not (Test-Path (Join-Path $dir 'libmpv-2.dll'))) { throw 'libmpv-2.dll was not installed' }
           # A silent install starts the app, as it does after an update.
           Stop-Process -Name 'video-all-in-one' -Force -ErrorAction SilentlyContinue
           Start-Sleep -Seconds 2
-          Start-Process -FilePath (Join-Path $dir 'uninstall.exe') -ArgumentList '/S' -Wait
-          Start-Sleep -Seconds 3
+          # uninstall.exe copies itself to a temporary folder and exits at once, so wait for the
+          # files to disappear instead of for the process.
+          Start-Process -FilePath (Join-Path $dir 'uninstall.exe') -ArgumentList '/S' | Out-Null
+          $deadline = (Get-Date).AddSeconds(90)
+          while ((Test-Path (Join-Path $dir 'video-all-in-one.exe')) -and ((Get-Date) -lt $deadline)) { Start-Sleep -Seconds 2 }
           if (Test-Path (Join-Path $dir 'video-all-in-one.exe')) { throw 'the app was not removed' }
 
       - name: Keep the installers and update artifacts

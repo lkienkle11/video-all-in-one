@@ -52,6 +52,11 @@ jobs:
           # more than 10 minutes; Intel still runs the tests.
           - target: macos-intel
             task: lint
+          # Two Apple Silicon jobs ask the same runner pool at the same time and, when it is short,
+          # both wait in the queue for the full 15 minutes and are cancelled. One job per Apple
+          # Silicon Mac runs the lint checks and then the tests (about 7 minutes together).
+          - target: macos-apple-silicon
+            task: lint
     defaults:
       run:
         shell: bash
@@ -171,11 +176,11 @@ jobs:
           $dir | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
 
       - name: Format
-        if: matrix.task == 'lint'
+        if: matrix.task == 'lint' || matrix.target == 'macos-apple-silicon'
         run: cargo fmt --check
 
       - name: Clippy
-        if: matrix.task == 'lint'
+        if: matrix.task == 'lint' || matrix.target == 'macos-apple-silicon'
         run: cargo clippy --locked --workspace --all-targets -- -D warnings
 
       # The Intel Mac is the slowest runner (a cold build of the whole workspace takes more than
@@ -190,11 +195,11 @@ jobs:
         run: cargo test --locked --workspace --exclude vaio-desktop --no-fail-fast
 
       - name: Language share
-        if: matrix.task == 'lint'
+        if: matrix.task == 'lint' || matrix.target == 'macos-apple-silicon'
         run: cargo xtask lang-share --min 85
 
       - name: Structure
-        if: matrix.task == 'lint'
+        if: matrix.task == 'lint' || matrix.target == 'macos-apple-silicon'
         run: cargo xtask check-structure
 
       - name: App icons are current
