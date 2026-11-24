@@ -13,8 +13,11 @@ on:
   push:
     branches:
       - "feat/**"
+    # A recipe change always raises RECIPE_VERSION (the release asset is never overwritten), and
+    # that constant lives in sources.rs, so only this file and the workflow start a build. Other
+    # edits under xtask/src/libmpv (for example a test) do not rebuild three runners for nothing.
     paths:
-      - "xtask/src/libmpv/**"
+      - "xtask/src/libmpv/sources.rs"
       - ".github/workflows/build-libmpv.yml"
 
 permissions:
