@@ -126,11 +126,16 @@ pub enum Text {
     ProcessAllQueued,
     ProcessAllSkipped,
     ProcessAllFailed,
+    MissingToolTitle,
+    MissingToolBody,
+    MissingToolFolder,
+    MissingToolCheck,
+    MissingToolInvalid,
 }
 
 impl Text {
     /// Every text key, in the same order as the enum.
-    pub const ALL: [Text; 94] = [
+    pub const ALL: [Text; 99] = [
         Text::AppTitle,
         Text::ChooseLanguageTitle,
         Text::ChooseLanguageBody,
@@ -225,6 +230,11 @@ impl Text {
         Text::ProcessAllQueued,
         Text::ProcessAllSkipped,
         Text::ProcessAllFailed,
+        Text::MissingToolTitle,
+        Text::MissingToolBody,
+        Text::MissingToolFolder,
+        Text::MissingToolCheck,
+        Text::MissingToolInvalid,
     ];
 }
 

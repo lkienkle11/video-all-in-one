@@ -9,7 +9,10 @@ use crate::{
         },
     },
     state::AppState,
-    ui::settings::{label, SettingsView},
+    ui::{
+        missing_tools::ensure_tools,
+        settings::{label, SettingsView},
+    },
 };
 use gpui_kit::TestSupportExt;
 use gpui_kit::{
@@ -151,7 +154,10 @@ impl ExportPanel {
     }
 
     /// Queues one job per source that has at least one valid segment row, all or none.
-    fn process_all(&mut self, cx: &mut Context<Self>) {
+    fn process_all(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !ensure_tools(&self.state, &self.settings, window, cx) {
+            return;
+        }
         let state = self.state.read(cx);
         let Some(scheduler) = state.scheduler().cloned() else {
             self.status = Status::Failed(ExportCommandError::SchedulerUnavailable);
@@ -182,7 +188,10 @@ impl ExportPanel {
         .detach();
     }
 
-    fn export(&mut self, cx: &mut Context<Self>) {
+    fn export(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !ensure_tools(&self.state, &self.settings, window, cx) {
+            return;
+        }
         let Some(rows) = self.editor.read(cx).segments(cx) else {
             return;
         };
@@ -318,13 +327,13 @@ impl Render for ExportPanel {
                     .primary()
                     .label(tr(language, Text::ExportButton))
                     .disabled(!can_export)
-                    .on_click(cx.listener(|this, _, _, cx| this.export(cx))),
+                    .on_click(cx.listener(|this, _, window, cx| this.export(window, cx))),
             )
             .child(
                 Button::new("process-all-button")
                     .label(tr(language, Text::ProcessAllButton))
                     .disabled(!can_process_all)
-                    .on_click(cx.listener(|this, _, _, cx| this.process_all(cx))),
+                    .on_click(cx.listener(|this, _, window, cx| this.process_all(window, cx))),
             )
             .child(match &self.status {
                 Status::Idle => div().into_any_element(),

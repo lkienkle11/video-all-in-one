@@ -3,6 +3,7 @@ use crate::commands::batch::{valid_rows, BatchInput};
 use gpui_kit::{Context, Task};
 use std::{
     collections::HashMap,
+    ffi::OsString,
     path::{Path, PathBuf},
     sync::Arc,
 };
@@ -16,7 +17,26 @@ use vaio_core::{
     ports::events::JobEvent,
     services::job_scheduler::JobScheduler,
 };
-use vaio_media::ffmpeg::FfmpegPaths;
+use vaio_media::{export_runner::ToolPathsCell, ffmpeg::FfmpegPaths};
+
+/// Where the app looks for FFmpeg and FFprobe after the folder the user chose.
+#[derive(Debug, Clone)]
+pub struct ToolSearch {
+    path_var: Option<OsString>,
+}
+impl ToolSearch {
+    /// Searches the `PATH` of this process.
+    pub fn from_env() -> Self {
+        Self::with_path(std::env::var_os("PATH"))
+    }
+    /// Searches an explicit `PATH` value, so tests never depend on the real environment.
+    pub fn with_path(path_var: Option<OsString>) -> Self {
+        Self { path_var }
+    }
+    pub fn path_var(&self) -> Option<&std::ffi::OsStr> {
+        self.path_var.as_deref()
+    }
+}
 
 pub struct Source {
     path: PathBuf,
@@ -80,7 +100,8 @@ impl JobRow {
 /// Owns source selection, queue projections and the receiver task's lifetime.
 pub struct AppState {
     runtime: Handle,
-    tools: Option<Arc<FfmpegPaths>>,
+    tools: ToolPathsCell,
+    search: Option<ToolSearch>,
     sources: Vec<Source>,
     selected: Option<PathBuf>,
     jobs: Vec<JobRow>,
@@ -97,7 +118,12 @@ impl AppState {
     ) -> Self {
         Self {
             runtime,
-            tools: tools.map(Arc::new),
+            // An empty executable is unusable on purpose: a missing tool must not block the shell.
+            tools: ToolPathsCell::new(tools.unwrap_or(FfmpegPaths {
+                ffmpeg: PathBuf::new(),
+                ffprobe: PathBuf::new(),
+            })),
+            search: None,
             sources: vec![],
             selected: None,
             jobs: vec![],
@@ -110,8 +136,24 @@ impl AppState {
     pub fn runtime(&self) -> &Handle {
         &self.runtime
     }
+    /// The paths in force, or `None` while FFprobe is unresolved.
     pub fn tools(&self) -> Option<Arc<FfmpegPaths>> {
-        self.tools.clone()
+        let paths = self.tools.get();
+        (!paths.ffprobe.as_os_str().is_empty()).then_some(paths)
+    }
+    /// Replaces the tool paths for every reader, including a runner built from the same cell.
+    pub fn set_tools(&self, paths: FfmpegPaths) {
+        self.tools.set(paths);
+    }
+    /// Shares `cell` with the export runner and turns on the missing-tool checks.
+    pub fn with_tool_search(mut self, cell: ToolPathsCell, search: ToolSearch) -> Self {
+        self.tools = cell;
+        self.search = Some(search);
+        self
+    }
+    /// `None` when the missing-tool checks are off.
+    pub fn tool_search(&self) -> Option<&ToolSearch> {
+        self.search.as_ref()
     }
     pub fn sources(&self) -> &[Source] {
         &self.sources

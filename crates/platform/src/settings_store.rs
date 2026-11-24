@@ -32,16 +32,19 @@ impl SettingsStore {
         Self::read_path(dir.as_ref().join("settings.json"))
     }
     fn read_path(path: impl AsRef<Path>) -> Settings {
-        let language = fs::read(path)
+        let value = fs::read(path)
             .ok()
-            .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
-            .and_then(|value| {
-                value
-                    .get("language")
-                    .and_then(|value| value.as_str())
-                    .and_then(Language::from_code)
-            });
-        Settings { language }
+            .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok());
+        let field = |key: &str| value.as_ref().and_then(|value| value.get(key));
+        let language = field("language")
+            .and_then(|value| value.as_str())
+            .and_then(Language::from_code);
+        // A relative folder would be searched from the current directory, so it is dropped.
+        let tool_dir = field("tool_dir")
+            .and_then(|value| value.as_str())
+            .map(PathBuf::from)
+            .filter(|path| path.is_absolute());
+        Settings { language, tool_dir }
     }
 
     /// Writes a complete temporary file before replacing the live settings.
@@ -52,9 +55,14 @@ impl SettingsStore {
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
         }
-        let bytes = serde_json::to_vec(
-            &serde_json::json!({"language": settings.language.map(|language| language.code())}),
-        )?;
+        let mut json = serde_json::json!({
+            "language": settings.language.map(|language| language.code()),
+        });
+        // Omitted when unset, so a file without a chosen folder keeps its earlier shape.
+        if let Some(dir) = &settings.tool_dir {
+            json["tool_dir"] = dir.to_string_lossy().into_owned().into();
+        }
+        let bytes = serde_json::to_vec(&json)?;
         static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let temp = path.with_extension(format!(
             "json.{}.{}.tmp",
@@ -140,7 +148,10 @@ mod tests {
         let dir = root.join("data");
         let store = SettingsStore::new(&dir);
         for language in [Some(Language::English), Some(Language::Vietnamese), None] {
-            let settings = Settings { language };
+            let settings = Settings {
+                language,
+                ..Settings::default()
+            };
             store.save(&settings).unwrap();
             assert_eq!(SettingsStore::load(&dir), settings);
             assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1);
@@ -155,6 +166,7 @@ mod tests {
         store
             .save(&Settings {
                 language: Some(Language::English),
+                ..Settings::default()
             })
             .unwrap();
         let original = std::fs::read(dir.join("settings.json")).unwrap();
@@ -164,7 +176,8 @@ mod tests {
         std::fs::write(&dir, "blocked").unwrap();
         assert!(store
             .save(&Settings {
-                language: Some(Language::Vietnamese)
+                language: Some(Language::Vietnamese),
+                ..Settings::default()
             })
             .is_err());
         assert_eq!(std::fs::read(&dir).unwrap(), b"blocked");
@@ -190,8 +203,55 @@ mod tests {
         store
             .save(&Settings {
                 language: Some(Language::Vietnamese),
+                ..Settings::default()
             })
             .unwrap();
         assert_eq!(store.read().language, Some(Language::Vietnamese));
+    }
+
+    #[test]
+    fn tool_dir_round_trips_and_clears() {
+        let root = directory();
+        let store = SettingsStore::new(root.join("data"));
+        let chosen = Settings {
+            language: Some(Language::English),
+            tool_dir: Some(root.join("tools")),
+        };
+        store.save(&chosen).unwrap();
+        assert_eq!(store.read(), chosen);
+        let cleared = Settings {
+            tool_dir: None,
+            ..chosen
+        };
+        store.save(&cleared).unwrap();
+        assert_eq!(store.read(), cleared);
+    }
+
+    #[test]
+    fn a_legacy_file_without_tool_dir_still_loads() {
+        let dir = directory();
+        std::fs::write(dir.join("settings.json"), r#"{"language":"vi"}"#).unwrap();
+        assert_eq!(
+            SettingsStore::load(&dir),
+            Settings {
+                language: Some(Language::Vietnamese),
+                tool_dir: None,
+            }
+        );
+    }
+
+    #[test]
+    fn a_bad_or_relative_tool_dir_is_ignored() {
+        let dir = directory();
+        for text in [
+            r#"{"language":"en","tool_dir":7}"#,
+            r#"{"language":"en","tool_dir":null}"#,
+            r#"{"language":"en","tool_dir":"relative/tools"}"#,
+        ] {
+            std::fs::write(dir.join("settings.json"), text).unwrap();
+            let loaded = SettingsStore::load(&dir);
+            assert_eq!(loaded.language, Some(Language::English), "{text}");
+            assert_eq!(loaded.tool_dir, None, "{text}");
+        }
     }
 }

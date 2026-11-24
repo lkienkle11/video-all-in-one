@@ -1,6 +1,9 @@
 use crate::{
     state::AppState,
-    ui::{language_modal::LanguageModal, settings::SettingsView, workspace::WorkspaceView},
+    ui::{
+        language_modal::LanguageModal, missing_tools::ensure_tools, settings::SettingsView,
+        workspace::WorkspaceView,
+    },
 };
 use gpui_kit::{AppContext, Context, Entity, IntoElement, Render, Window};
 use vaio_core::update::UpdateState;
@@ -24,6 +27,11 @@ impl AppView {
             settings.read(cx).language(),
             vaio_core::i18n::Text::AppTitle,
         ));
+        // Opened first, so the language choice, when needed, is shown on top of it.
+        let (tool_state, tool_settings) = (state.clone(), settings.clone());
+        cx.defer_in(window, move |_, window, cx| {
+            ensure_tools(&tool_state, &tool_settings, window, cx);
+        });
         if settings.read(cx).needs_language_choice() {
             let settings = settings.clone();
             cx.defer_in(window, move |_, window, cx| {

@@ -9,7 +9,7 @@ use std::{
     io,
     path::{Path, PathBuf},
     process::Command,
-    sync::Arc,
+    sync::{Arc, RwLock},
 };
 use tokio_util::sync::CancellationToken;
 use vaio_core::{
@@ -69,14 +69,37 @@ impl ExportJobPayload {
     }
 }
 
-/// Media adapter backed by stored job inputs and caller-resolved executables.
+/// Executable paths that the host can replace while the runner is alive.
+/// Clones share one value, so a change made through any clone reaches every reader.
+#[derive(Clone)]
+pub struct ToolPathsCell(Arc<RwLock<Arc<FfmpegPaths>>>);
+impl ToolPathsCell {
+    pub fn new(paths: FfmpegPaths) -> Self {
+        Self(Arc::new(RwLock::new(Arc::new(paths))))
+    }
+    /// The paths in force now; later changes do not affect the returned value.
+    pub fn get(&self) -> Arc<FfmpegPaths> {
+        // A poisoned lock still holds a complete value: the guarded data is one Arc.
+        self.0.read().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+    /// Replaces the paths for every reader of this cell.
+    pub fn set(&self, paths: FfmpegPaths) {
+        *self.0.write().unwrap_or_else(|e| e.into_inner()) = Arc::new(paths);
+    }
+}
+
+/// Media adapter backed by stored job inputs and host-resolved executables.
 pub struct FfmpegExportRunner {
     store: Arc<dyn JobStore>,
-    tools: FfmpegPaths,
+    tools: ToolPathsCell,
 }
 impl FfmpegExportRunner {
     /// Uses the same store as the scheduler; executable resolution belongs to the host.
     pub fn new(store: Arc<dyn JobStore>, tools: FfmpegPaths) -> Self {
+        Self::with_shared_tools(store, ToolPathsCell::new(tools))
+    }
+    /// Reads the paths from `tools` on every run, so the host can change them later.
+    pub fn with_shared_tools(store: Arc<dyn JobStore>, tools: ToolPathsCell) -> Self {
         Self { store, tools }
     }
 
@@ -94,6 +117,7 @@ impl ExportRunner for FfmpegExportRunner {
         cancel: CancellationToken,
     ) -> RunFuture<'a> {
         Box::pin(async move {
+            let tools = self.tools.get();
             let store = self.store.clone();
             let id = job.id();
             let payload = tokio::task::spawn_blocking(move || Self::payload(store.as_ref(), id))
@@ -104,7 +128,7 @@ impl ExportRunner for FfmpegExportRunner {
             let mut diagnostics = false;
             let status = run(
                 ProcessSpec {
-                    program: self.tools.ffprobe.clone(),
+                    program: tools.ffprobe.clone(),
                     args,
                     cwd: None,
                 },
@@ -130,7 +154,7 @@ impl ExportRunner for FfmpegExportRunner {
             let plan = tokio::task::spawn_blocking(move || plan(&payload, &info, false))
                 .await
                 .map_err(failure)??;
-            ffmpeg::execute(&plan, &self.tools, progress, cancel)
+            ffmpeg::execute(&plan, &tools, progress, cancel)
                 .await
                 .map_err(failure)
         })
@@ -138,7 +162,8 @@ impl ExportRunner for FfmpegExportRunner {
     fn cleanup_temp(&self, job: &Job) -> Result<(), RunFailure> {
         let payload = Self::payload(self.store.as_ref(), job.id())?;
         // The port is synchronous; the scheduler invokes cleanup on a blocking worker.
-        let output = Command::new(&self.tools.ffprobe)
+        let tools = self.tools.get();
+        let output = Command::new(&tools.ffprobe)
             .args(ffprobe_args(&payload.source).map_err(failure)?)
             .output()
             .map_err(failure)?;

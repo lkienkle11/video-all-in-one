@@ -58,6 +58,10 @@ impl SettingsView {
     pub(crate) fn language(&self) -> Language {
         self.settings.language.unwrap_or(Language::English)
     }
+    /// The folder the user chose for FFmpeg and FFprobe.
+    pub(crate) fn tool_dir(&self) -> Option<&std::path::Path> {
+        self.settings.tool_dir.as_deref()
+    }
     pub(crate) fn save_failed(&self) -> bool {
         self.save_failed
     }
@@ -70,6 +74,7 @@ impl SettingsView {
     ) -> bool {
         let settings = Settings {
             language: Some(language),
+            ..self.settings.clone()
         };
         self.save_failed = self.store.save(&settings).is_err();
         if !self.save_failed {
@@ -78,6 +83,19 @@ impl SettingsView {
         }
         cx.notify();
         !self.save_failed
+    }
+
+    /// Remembers the tool folder; the settings in memory change only when the file was written.
+    pub(crate) fn set_tool_dir(&mut self, dir: std::path::PathBuf, cx: &mut Context<Self>) {
+        let settings = Settings {
+            tool_dir: Some(dir),
+            ..self.settings.clone()
+        };
+        self.save_failed = self.store.save(&settings).is_err();
+        if !self.save_failed {
+            self.settings = settings;
+        }
+        cx.notify();
     }
 
     fn update_section(&self, language: Language) -> impl IntoElement {

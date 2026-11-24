@@ -44,6 +44,7 @@ fn open(cx: &mut TestAppContext, channel: Channel) -> (gpui_kit::AnyWindowHandle
     SettingsStore::new(&dir)
         .save(&Settings {
             language: Some(Language::English),
+            ..Default::default()
         })
         .unwrap();
     let handle = cx.update(|cx| {
@@ -162,6 +163,7 @@ fn update_states(cx: &mut TestAppContext, language: Language) {
     SettingsStore::new(&dir)
         .save(&Settings {
             language: Some(language),
+            ..Default::default()
         })
         .unwrap();
     let commands = Rc::new(RefCell::new(Vec::new()));

@@ -45,6 +45,7 @@ fn open(
     store
         .save(&Settings {
             language: Some(language),
+            ..Default::default()
         })
         .unwrap();
     let (window, view) = cx.update(|cx| {

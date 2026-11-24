@@ -13,7 +13,7 @@ use vaio_core::{
     ports::{export_runner::ExportRunner, JobStore, StoreError, StoredJob},
 };
 use vaio_media::{
-    export_runner::{ExportJobPayload, FfmpegExportRunner},
+    export_runner::{ExportJobPayload, FfmpegExportRunner, ToolPathsCell},
     ffmpeg::FfmpegPaths,
     ffprobe::{ffprobe_args, parse_ffprobe_json},
 };
@@ -69,13 +69,11 @@ struct Fixture {
 }
 impl Fixture {
     fn new() -> Self {
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let dir = std::env::temp_dir().join(format!(
-            "vaio-runner-{}-{:?}",
+            "vaio-runner-{}-{}",
             std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
+            NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
         ));
         fs::create_dir(&dir).unwrap();
         let source = dir.join("source é 日本.mp4");
@@ -239,4 +237,38 @@ fn cleanup_removes_only_recomputed_temps_and_preserves_source_and_outputs() {
     }
     assert_eq!(fs::read(&f.source).unwrap(), original);
     assert_eq!(fs::read(completed).unwrap(), b"completed user output");
+}
+
+#[tokio::test]
+async fn a_tool_path_change_is_used_without_rebuilding_the_runner() {
+    let f = Fixture::new();
+    let job = Job::new(JobId(17), JobKind::Cut);
+    let store = Arc::new(Stored(StoredJob {
+        job: job.clone(),
+        payload: f
+            .payload(CutMode::Fast, ExportMode::Merged, "late")
+            .to_json()
+            .unwrap(),
+        created_at_ms: 0,
+        updated_at_ms: 0,
+    }));
+    let cell = ToolPathsCell::new(FfmpegPaths {
+        ffmpeg: PathBuf::new(),
+        ffprobe: PathBuf::new(),
+    });
+    let runner = FfmpegExportRunner::with_shared_tools(store, cell.clone());
+
+    let failed = runner
+        .run(&job, &mut |_| {}, CancellationToken::new())
+        .await;
+    assert!(failed.is_err(), "empty tool paths cannot run");
+    assert!(runner.cleanup_temp(&job).is_err());
+
+    cell.set(tools());
+    let outputs = runner
+        .run(&job, &mut |_| {}, CancellationToken::new())
+        .await
+        .unwrap();
+    assert_eq!(outputs, vec![f.dir.join("late.mp4")]);
+    runner.cleanup_temp(&job).unwrap();
 }

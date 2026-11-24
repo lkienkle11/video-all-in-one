@@ -107,5 +107,12 @@ pub fn text(text: Text) -> &'static str {
         Text::ProcessAllQueued => "{0} exports queued.",
         Text::ProcessAllSkipped => "{0} without segments skipped.",
         Text::ProcessAllFailed => "Nothing was queued. “{0}” can’t be exported: {1}",
+        Text::MissingToolTitle => "{0} is missing",
+        Text::MissingToolBody => {
+            "{0} was not found. Install it with: {1}, or choose the folder that contains it."
+        }
+        Text::MissingToolFolder => "Folder with FFmpeg and FFprobe",
+        Text::MissingToolCheck => "Check",
+        Text::MissingToolInvalid => "FFmpeg and FFprobe were not both found in that folder.",
     }
 }

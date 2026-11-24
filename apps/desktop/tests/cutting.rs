@@ -112,6 +112,7 @@ fn open(cx: &mut TestAppContext, language: Language, limits: Limits) -> Harness 
     settings_store
         .save(&Settings {
             language: Some(language),
+            ..Default::default()
         })
         .unwrap();
     let (handle, view) = cx.update(|cx| {

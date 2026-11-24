@@ -99,5 +99,10 @@ pub fn text(text: Text) -> &'static str {
         Text::ProcessAllQueued => "Đã đưa {0} tác vụ xuất vào hàng đợi.",
         Text::ProcessAllSkipped => "Đã bỏ qua {0} video chưa có đoạn nào.",
         Text::ProcessAllFailed => "Chưa có gì được đưa vào hàng đợi. Không thể xuất “{0}”: {1}",
+        Text::MissingToolTitle => "Thiếu {0}",
+        Text::MissingToolBody => "Không tìm thấy {0}. Hãy cài bằng lệnh: {1}, hoặc chọn thư mục chứa công cụ này.",
+        Text::MissingToolFolder => "Thư mục chứa FFmpeg và FFprobe",
+        Text::MissingToolCheck => "Kiểm tra",
+        Text::MissingToolInvalid => "Không tìm thấy đủ FFmpeg và FFprobe trong thư mục đó.",
     }
 }

@@ -11,10 +11,13 @@ use vaio_core::{
     services::job_scheduler::{JobScheduler, Limits},
 };
 use vaio_desktop::app::AppView;
-use vaio_desktop::state::AppState;
-use vaio_media::{export_runner::FfmpegExportRunner, ffmpeg::FfmpegPaths};
+use vaio_desktop::state::{AppState, ToolSearch};
+use vaio_media::{
+    export_runner::{FfmpegExportRunner, ToolPathsCell},
+    ffmpeg::FfmpegPaths,
+};
 use vaio_platform::channel::Channel;
-use vaio_platform::{binary_resolver, paths::data_dir};
+use vaio_platform::{binary_resolver, paths::data_dir, settings_store::SettingsStore};
 use vaio_storage::{Database, SqliteJobStore};
 
 fn main() {
@@ -66,27 +69,28 @@ fn initialize(runtime: &Runtime, channel: Channel) -> Result<AppState, String> {
     let base = vaio_desktop::app::data_base()
         .ok_or_else(|| "no absolute application data directory".to_owned())?;
     runtime.block_on(async {
-        let (store, tools, runner_tools) = tokio::task::spawn_blocking(move || {
+        let (store, tools) = tokio::task::spawn_blocking(move || {
             let directory = data_dir(channel, &base);
             std::fs::create_dir_all(&directory).map_err(|error| error.to_string())?;
             let store: Arc<dyn JobStore> = Arc::new(SqliteJobStore::new(
                 Database::open(&directory.join("jobs.db")).map_err(|error| error.to_string())?,
             ));
             // An empty executable is deliberately unusable. Missing tools must not block the shell.
-            let ffmpeg =
-                binary_resolver::resolve(Tool::Ffmpeg, None).unwrap_or_else(|_| PathBuf::new());
-            let ffprobe =
-                binary_resolver::resolve(Tool::Ffprobe, None).unwrap_or_else(|_| PathBuf::new());
-            let tools = (!ffprobe.as_os_str().is_empty()).then(|| FfmpegPaths {
-                ffmpeg: ffmpeg.clone(),
-                ffprobe: ffprobe.clone(),
-            });
-            Ok::<_, String>((store, tools, FfmpegPaths { ffmpeg, ffprobe }))
+            // The folder the user chose last time is searched before the PATH.
+            let tool_dir = SettingsStore::load(&directory).tool_dir;
+            let ffmpeg = binary_resolver::resolve(Tool::Ffmpeg, tool_dir.as_deref())
+                .unwrap_or_else(|_| PathBuf::new());
+            let ffprobe = binary_resolver::resolve(Tool::Ffprobe, tool_dir.as_deref())
+                .unwrap_or_else(|_| PathBuf::new());
+            Ok::<_, String>((store, ToolPathsCell::new(FfmpegPaths { ffmpeg, ffprobe })))
         })
         .await
         .map_err(|error| error.to_string())??;
         let (sender, receiver) = mpsc::unbounded_channel();
-        let runner = Arc::new(FfmpegExportRunner::new(store.clone(), runner_tools));
+        let runner = Arc::new(FfmpegExportRunner::with_shared_tools(
+            store.clone(),
+            tools.clone(),
+        ));
         let scheduler = Arc::new(JobScheduler::new(
             store.clone(),
             runner,
@@ -100,8 +104,9 @@ fn initialize(runtime: &Runtime, channel: Channel) -> Result<AppState, String> {
             .await
             .map_err(|error| error.to_string())?
             .map_err(|error| error.to_string())?;
-        let mut state =
-            AppState::new(runtime.handle().clone(), tools, receiver).with_scheduler(scheduler);
+        let mut state = AppState::new(runtime.handle().clone(), None, receiver)
+            .with_scheduler(scheduler)
+            .with_tool_search(tools, ToolSearch::from_env());
         for stored in jobs {
             let job = stored.job;
             state.apply_event(JobEvent::StateChanged(job.id(), job.state()));

@@ -99,6 +99,7 @@ fn needs_language_choice_when_unset() {
     assert!(Settings::default().needs_language_choice());
     let chosen = Settings {
         language: Some(Language::Vietnamese),
+        ..Default::default()
     };
     assert!(!chosen.needs_language_choice());
 }
@@ -201,6 +202,11 @@ fn index(t: Text) -> usize {
         Text::ProcessAllQueued => 91,
         Text::ProcessAllSkipped => 92,
         Text::ProcessAllFailed => 93,
+        Text::MissingToolTitle => 94,
+        Text::MissingToolBody => 95,
+        Text::MissingToolFolder => 96,
+        Text::MissingToolCheck => 97,
+        Text::MissingToolInvalid => 98,
     }
 }
 
@@ -214,7 +220,7 @@ fn text_all_lists_every_variant_in_enum_order() {
         );
     }
     // The last variant has the highest index.
-    let highest = index(Text::ProcessAllFailed);
+    let highest = index(Text::MissingToolInvalid);
     assert_eq!(
         Text::ALL.len(),
         highest + 1,
