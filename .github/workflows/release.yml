@@ -142,7 +142,7 @@ jobs:
         run: choco install ffmpeg --no-progress -y
 
       # Windows: unpack the pinned libmpv development package, check its SHA-256, and make an
-      # MSVC import library (mpv.lib) from the package's mpv.def so that the linker can use it.
+      # MSVC import library (mpv.lib) from the DLL's export list so that the linker can use it.
       - name: Install libmpv (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
@@ -155,9 +155,16 @@ jobs:
           if ($hash -ne $env:MPV_WIN_SHA256) { throw "mpv-dev archive has SHA-256 $hash, expected $env:MPV_WIN_SHA256" }
           7z x $archive "-o$dir" -y | Out-Null
           if (-not (Test-Path (Join-Path $dir 'libmpv-2.dll'))) { throw 'libmpv-2.dll is not in the archive' }
-          if (-not (Test-Path (Join-Path $dir 'mpv.def'))) { throw 'mpv.def is not in the archive' }
           $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
-          $libexe = Get-ChildItem (Join-Path $vs 'VC\Tools\MSVC') -Recurse -Filter lib.exe | Where-Object { $_.FullName -match 'Hostx64\\x64' } | Select-Object -First 1
+          $tools = Join-Path $vs 'VC\Tools\MSVC'
+          $libexe = Get-ChildItem $tools -Recurse -Filter lib.exe | Where-Object { $_.FullName -match 'Hostx64\\x64' } | Select-Object -First 1
+          $dumpbin = Get-ChildItem $tools -Recurse -Filter dumpbin.exe | Where-Object { $_.FullName -match 'Hostx64\\x64' } | Select-Object -First 1
+          # The package has no .def file (only a MinGW import library), so list the exports of the
+          # DLL itself and write the .def from them.
+          $exports = & $dumpbin.FullName /nologo /exports (Join-Path $dir 'libmpv-2.dll') |
+            ForEach-Object { if ($_ -match '^\s+\d+\s+[0-9A-Fa-f]+\s+[0-9A-Fa-f]{8}\s+(\S+)') { $Matches[1] } }
+          if (-not ($exports | Where-Object { $_ -eq 'mpv_create' })) { throw 'mpv_create is not exported by libmpv-2.dll' }
+          @('LIBRARY libmpv-2.dll', 'EXPORTS') + $exports | Set-Content -Encoding ascii (Join-Path $dir 'mpv.def')
           & $libexe.FullName "/def:$dir\mpv.def" /name:libmpv-2.dll "/out:$dir\mpv.lib" /MACHINE:X64
           if ($LASTEXITCODE -ne 0) { throw 'lib.exe failed' }
           "RUSTFLAGS=-L native=$dir" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
