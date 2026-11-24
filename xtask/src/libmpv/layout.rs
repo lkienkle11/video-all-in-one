@@ -97,14 +97,15 @@ fn relocate_macho(library: &Path, out: &Path, env: &[(String, String)]) -> Resul
             }
         }
     }
-    for rpath in inspect::macho_rpaths(&tool_output("otool", &["-l", &path_arg(library)], env)?) {
+    let existing = inspect::macho_rpaths(&tool_output("otool", &["-l", &path_arg(library)], env)?);
+    let (delete, add) = rpath_edits(&existing);
+    for rpath in delete {
         args.extend(["-delete_rpath".into(), rpath]);
     }
-    args.extend([
-        "-add_rpath".into(),
-        "@loader_path".into(),
-        path_arg(library),
-    ]);
+    if add {
+        args.extend(["-add_rpath".into(), "@loader_path".into()]);
+    }
+    args.push(path_arg(library));
     run(Path::new("install_name_tool"), &args, out, env)?;
     run(
         Path::new("codesign"),
@@ -116,6 +117,21 @@ fn relocate_macho(library: &Path, out: &Path, env: &[(String, String)]) -> Resul
         ],
         out,
         env,
+    )
+}
+
+/// Which run paths to delete and whether to add `@loader_path`, so that running the relocation
+/// again on an already relocated library (a rebuild from a cached folder) changes nothing:
+/// `install_name_tool` refuses to delete and add the same run path in one call.
+fn rpath_edits(existing: &[String]) -> (Vec<String>, bool) {
+    let delete = existing
+        .iter()
+        .filter(|rpath| rpath.as_str() != "@loader_path")
+        .cloned()
+        .collect();
+    (
+        delete,
+        !existing.iter().any(|rpath| rpath == "@loader_path"),
     )
 }
 
@@ -242,5 +258,24 @@ fn probe_api_version(out: &Path, work: &Path, env: &[(String, String)]) -> Resul
             Ok(())
         }
         other => bail!("libmpv reports client API {other:?} ({printed:?}), the app needs 2"),
+    }
+}
+
+#[cfg(test)]
+mod rpath_tests {
+    use super::rpath_edits;
+
+    #[test]
+    fn relocating_twice_changes_nothing_the_second_time() {
+        assert_eq!(rpath_edits(&[]), (vec![], true));
+        assert_eq!(
+            rpath_edits(&["/opt/x/lib".to_string()]),
+            (vec!["/opt/x/lib".to_string()], true)
+        );
+        assert_eq!(rpath_edits(&["@loader_path".to_string()]), (vec![], false));
+        assert_eq!(
+            rpath_edits(&["@loader_path".to_string(), "/opt/y".to_string()]),
+            (vec!["/opt/y".to_string()], false)
+        );
     }
 }
