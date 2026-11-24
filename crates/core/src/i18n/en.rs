@@ -27,6 +27,15 @@ pub fn text(text: Text) -> &'static str {
         Text::UpdateLater => "Later",
         Text::UpdateNow => "Update now",
         Text::ErrorGeneric => "Something went wrong. Please try again.",
+        Text::SettingsUpdates => "Updates",
+        Text::UpdateCheck => "Check for updates",
+        Text::UpdateReady => "Ready to install",
+        Text::UpdateInstalled => "Update installed",
+        Text::UpdateFailed => "Couldn’t update. Try again.",
+        Text::UpdateInstallFailed => "Couldn’t install the update. Try again.",
+        Text::UpdateDownloaded => "Downloaded {0} MB",
+        Text::SettingsSaveFailed => "Couldn’t save your language. Try again.",
         Text::Close => "Close",
+        Text::UpdateDownloadingUnknown => "Downloading {0} MB",
     }
 }

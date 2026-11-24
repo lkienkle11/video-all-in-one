@@ -52,12 +52,21 @@ pub enum Text {
     UpdateLater,
     UpdateNow,
     ErrorGeneric,
+    SettingsUpdates,
+    UpdateCheck,
+    UpdateReady,
+    UpdateInstalled,
+    UpdateFailed,
+    UpdateInstallFailed,
+    UpdateDownloaded,
+    SettingsSaveFailed,
     Close,
+    UpdateDownloadingUnknown,
 }
 
 impl Text {
     /// Every text key, in the same order as the enum.
-    pub const ALL: [Text; 21] = [
+    pub const ALL: [Text; 30] = [
         Text::AppTitle,
         Text::ChooseLanguageTitle,
         Text::ChooseLanguageBody,
@@ -78,7 +87,16 @@ impl Text {
         Text::UpdateLater,
         Text::UpdateNow,
         Text::ErrorGeneric,
+        Text::SettingsUpdates,
+        Text::UpdateCheck,
+        Text::UpdateReady,
+        Text::UpdateInstalled,
+        Text::UpdateFailed,
+        Text::UpdateInstallFailed,
+        Text::UpdateDownloaded,
+        Text::SettingsSaveFailed,
         Text::Close,
+        Text::UpdateDownloadingUnknown,
     ];
 }
 
@@ -251,7 +269,16 @@ mod tests {
             Text::UpdateLater => 17,
             Text::UpdateNow => 18,
             Text::ErrorGeneric => 19,
-            Text::Close => 20,
+            Text::SettingsUpdates => 20,
+            Text::UpdateCheck => 21,
+            Text::UpdateReady => 22,
+            Text::UpdateInstalled => 23,
+            Text::UpdateFailed => 24,
+            Text::UpdateInstallFailed => 25,
+            Text::UpdateDownloaded => 26,
+            Text::SettingsSaveFailed => 27,
+            Text::Close => 28,
+            Text::UpdateDownloadingUnknown => 29,
         }
     }
 
@@ -264,8 +291,8 @@ mod tests {
                 "Text::ALL[{position}] is {text:?}, which is out of enum order"
             );
         }
-        // Close is the last variant, so its index is the highest one.
-        let highest = index(Text::Close);
+        // UpdateDownloadingUnknown is the last variant, so its index is the highest one.
+        let highest = index(Text::UpdateDownloadingUnknown);
         assert_eq!(
             Text::ALL.len(),
             highest + 1,

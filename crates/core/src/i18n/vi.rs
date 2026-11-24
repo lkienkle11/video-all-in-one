@@ -25,6 +25,15 @@ pub fn text(text: Text) -> &'static str {
         Text::UpdateLater => "Để sau",
         Text::UpdateNow => "Cập nhật ngay",
         Text::ErrorGeneric => "Đã xảy ra lỗi. Vui lòng thử lại.",
+        Text::SettingsUpdates => "Cập nhật",
+        Text::UpdateCheck => "Kiểm tra cập nhật",
+        Text::UpdateReady => "Sẵn sàng cài đặt",
+        Text::UpdateInstalled => "Đã cài đặt bản cập nhật",
+        Text::UpdateFailed => "Không thể cập nhật. Hãy thử lại.",
+        Text::UpdateInstallFailed => "Không thể cài đặt bản cập nhật. Hãy thử lại.",
+        Text::UpdateDownloaded => "Đã tải {0} MB",
+        Text::SettingsSaveFailed => "Không thể lưu ngôn ngữ. Hãy thử lại.",
         Text::Close => "Đóng",
+        Text::UpdateDownloadingUnknown => "Đang tải {0} MB",
     }
 }

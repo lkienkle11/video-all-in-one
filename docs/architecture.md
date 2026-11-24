@@ -34,6 +34,7 @@ replace `TODO` with one sentence, commit the map with the code.
 
 <!-- structure-map:start -->
 apps/desktop | Presents the desktop interface and connects it to application services.
+apps/desktop/src/ui | Presents language selection, Settings and update confirmation through the shared modal policy.
 crates/core | Defines domain policy, services and ports independently of adapters.
 crates/core/src/domain | Holds the core domain types: media timestamps, job identity, job kinds, job states and the job transition rules.
 crates/core/src/i18n | Holds the languages, UI text keys and English and Vietnamese string tables.

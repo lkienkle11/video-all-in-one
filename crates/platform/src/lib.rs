@@ -1,6 +1,7 @@
 pub mod binary_resolver;
 pub mod channel;
 pub mod paths;
+pub mod settings_store;
 pub mod update;
 
 #[cfg(test)]
