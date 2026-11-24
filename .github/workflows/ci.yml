@@ -176,9 +176,16 @@ jobs:
         if: matrix.task == 'lint'
         run: cargo clippy --locked --workspace --all-targets -- -D warnings
 
+      # The Intel Mac is the slowest runner (a cold build of the whole workspace takes more than
+      # 13 minutes). The GPUI window tests of vaio-desktop compile most of that, and they run on
+      # the Apple Silicon Mac, so the Intel job runs every other crate's tests.
       - name: Test
-        if: matrix.task == 'test'
+        if: matrix.task == 'test' && matrix.target != 'macos-intel'
         run: cargo test --locked --workspace --no-fail-fast
+
+      - name: Test (without the desktop window tests)
+        if: matrix.task == 'test' && matrix.target == 'macos-intel'
+        run: cargo test --locked --workspace --exclude vaio-desktop --no-fail-fast
 
       - name: Language share
         if: matrix.task == 'lint'

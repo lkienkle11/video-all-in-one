@@ -262,6 +262,8 @@ mod tests {
         assert!(plan.iter().all(|(_, _, args)| !args.is_empty()));
     }
 
+    // The libmpv build runs on macOS and Ubuntu only; the paths in this test are Unix paths.
+    #[cfg(unix)]
     #[test]
     fn the_environment_holds_only_allowed_variables() {
         let inherited = |name: &str| {
