@@ -53,5 +53,6 @@ crates/platform/src/update/steps | Holds the tested install building blocks: pri
 crates/storage | Implements persistent storage for application data.
 xtask | Provides workspace maintenance and release commands.
 xtask/src/check_structure | Checks workspace dependencies, source placement, and the architecture map.
+xtask/src/package | Builds the per-OS installer and update artifact: the macOS app bundle with its libraries, the Windows NSIS script and the Ubuntu .deb tree.
 xtask/src/release | Release commands: versioning, update signing keys and signatures, and the update manifest.
 <!-- structure-map:end -->

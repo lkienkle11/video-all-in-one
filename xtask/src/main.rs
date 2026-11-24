@@ -1,5 +1,6 @@
 mod check_structure;
 mod lang_share;
+mod package;
 mod release;
 mod structure_map;
 
@@ -42,6 +43,23 @@ enum Command {
         #[arg(long)]
         file: PathBuf,
     },
+    /// Builds the installer and the update artifact of one OS from a built production binary.
+    Package {
+        #[arg(long, value_enum)]
+        target: package::Target,
+        /// Defaults to the workspace version.
+        #[arg(long)]
+        version: Option<String>,
+        /// Output folder, default `target/package`.
+        #[arg(long)]
+        out: Option<PathBuf>,
+        /// The production executable, default `target/release/vaio-desktop`.
+        #[arg(long)]
+        binary: Option<PathBuf>,
+        /// Windows only: the folder with libmpv-2.dll and the DLLs it needs.
+        #[arg(long)]
+        libs: Option<PathBuf>,
+    },
     LatestJson {
         #[arg(long)]
         version: String,
@@ -68,6 +86,22 @@ fn main() -> Result<()> {
         Command::LangShare { min } => lang_share::run(&root, min),
         Command::SetVersion { version } => set_version::set_version(&root, &version),
         Command::CheckRelease { tag, latest } => check_release::check_release(&root, &tag, &latest),
+        Command::Package {
+            target,
+            version,
+            out,
+            binary,
+            libs,
+        } => package::run(
+            &root,
+            &package::Options {
+                target,
+                version,
+                out,
+                binary,
+                libs,
+            },
+        ),
         Command::Keygen { out } => keygen::run(&out),
         Command::Sign { file } => sign::run(&file),
         Command::LatestJson {

@@ -11,13 +11,13 @@ use vaio_core::update::parse_manifest;
 use vaio_platform::update::verify::verify_artifact;
 
 /// The platform keys of the update artifacts and the file extension each one ships with.
-const PLATFORMS: [(&str, &str); 4] = [
+pub(crate) const PLATFORMS: [(&str, &str); 4] = [
     ("macos-aarch64", "zip"),
     ("macos-x86_64", "zip"),
     ("windows-x86_64", "exe"),
     ("linux-x86_64", "deb"),
 ];
-const FILE_PREFIX: &str = "video-all-in-one-";
+pub(crate) const FILE_PREFIX: &str = "video-all-in-one-";
 
 /// Reads the notes of `version` from `changelog`, builds the schema 1 manifest from the
 /// artifacts in `assets_dir` and writes it to `out` (default `<assets_dir>/latest.json`).
@@ -142,7 +142,7 @@ fn find_artifacts(assets_dir: &Path, version: &str) -> Result<BTreeMap<String, S
 }
 
 /// The platform key and version of a `video-all-in-one-<version>-<platform>.<ext>` name.
-fn match_artifact(name: &str) -> Option<(&'static str, &str)> {
+pub(crate) fn match_artifact(name: &str) -> Option<(&'static str, &str)> {
     let rest = name.strip_prefix(FILE_PREFIX)?;
     for &(platform, ext) in PLATFORMS.iter() {
         let suffix = format!("-{platform}.{ext}");
