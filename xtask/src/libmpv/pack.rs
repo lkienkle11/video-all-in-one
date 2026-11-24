@@ -36,6 +36,7 @@ pub(super) fn pack(dir: &Path, out: &Path) -> Result<String> {
     // Absolute path: tar runs inside `dir`, where a relative `out` would point elsewhere.
     let out = std::path::absolute(out).context("resolving the archive path")?;
     let status = Command::new("tar")
+        .arg("--exclude=.markers")
         .arg("-czf")
         .arg(&out)
         .arg("-C")
@@ -66,6 +67,8 @@ mod tests {
         std::fs::write(dir.join("lib/libmpv.so.2"), b"lib").unwrap();
         std::os::unix::fs::symlink("libmpv.so.2", dir.join("lib/libmpv.so")).unwrap();
         std::fs::write(dir.join("MANIFEST.txt"), b"manifest").unwrap();
+        std::fs::create_dir_all(dir.join(".markers")).unwrap();
+        std::fs::write(dir.join(".markers/ffmpeg"), b"hash").unwrap();
     }
 
     #[test]
@@ -85,6 +88,10 @@ mod tests {
                 "{wanted} in\n{listing}"
             );
         }
+        assert!(
+            !listing.contains(".markers"),
+            "markers are not part of the archive:\n{listing}"
+        );
         std::fs::remove_dir_all(root).unwrap();
     }
 

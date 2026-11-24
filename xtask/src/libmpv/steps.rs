@@ -4,11 +4,14 @@
 use super::fetch;
 use super::manifest::Built;
 use super::recipe;
-use super::sources::{Source, SOURCES};
+use super::sources::{Source, RECIPE_VERSION, SOURCES};
 use super::Target;
 use anyhow::{bail, Context, Result};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
+
+/// The folder (inside the output folder) that holds one marker file per installed component.
+pub(super) const MARKERS_DIR: &str = ".markers";
 
 /// How a component is built.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -23,6 +26,7 @@ pub(super) enum Kind {
 pub(super) fn plan(target: Target, prefix: &str) -> Vec<(&'static Source, Kind, Vec<String>)> {
     SOURCES
         .iter()
+        .filter(|source| source.nested.is_none())
         .map(|source| {
             let (kind, args) = match source.name {
                 "ffmpeg" => (Kind::Autotools, recipe::ffmpeg_configure(target, prefix)),
@@ -116,7 +120,35 @@ pub(super) fn run(
     Ok(())
 }
 
-/// Downloads, verifies, unpacks, builds and installs every component into `prefix`.
+/// The text that decides whether an installed component is still current: the recipe version,
+/// the target, the build system, the pinned source (and the sources unpacked into it) and the
+/// flags. Any change gives a different hash.
+pub(super) fn recipe_hash(
+    target: Target,
+    source: &Source,
+    kind: Kind,
+    nested: &[&Source],
+    args: &[String],
+) -> String {
+    let mut text = format!(
+        "recipe {RECIPE_VERSION}\n{target:?} {kind:?}\n{} {} {}\n",
+        source.name, source.version, source.sha256
+    );
+    for item in nested {
+        text.push_str(&format!("nested {} {}\n", item.name, item.sha256));
+    }
+    text.push_str(&args.join("\n"));
+    fetch::sha256_bytes(text.as_bytes())
+}
+
+/// Where the marker of `name` lives: a file holding the recipe hash it was installed with.
+pub(super) fn marker_path(prefix: &Path, name: &str) -> PathBuf {
+    prefix.join(MARKERS_DIR).join(name)
+}
+
+/// Downloads, verifies, unpacks, builds and installs every component into `prefix`. A component
+/// whose marker holds the current recipe hash is already installed (from a cached folder) and
+/// is not built again; its sources are still unpacked, because the licence texts come from them.
 pub(super) fn build_all(
     target: Target,
     prefix: &Path,
@@ -124,39 +156,91 @@ pub(super) fn build_all(
     env: &[(String, String)],
 ) -> Result<Vec<Built<'static>>> {
     let jobs = std::thread::available_parallelism().map_or(2, |n| n.get());
+    let download = work.join("download");
     let mut built = Vec::new();
     for (source, kind, args) in plan(target, &prefix.display().to_string()) {
         println!("== {} {}", source.name, source.version);
-        let archive = fetch::fetch(source, &work.join("download"))?;
-        let src = work.join("src").join(source.name);
-        fetch::unpack_verified(&archive, source.sha256, &src)?;
-        let build = work.join("build").join(source.name);
-        if build.exists() {
-            std::fs::remove_dir_all(&build)
-                .with_context(|| format!("clearing {}", build.display()))?;
+        let src = unpack(source, work, &download)?;
+        let nested: Vec<&'static Source> = SOURCES
+            .iter()
+            .filter(|n| n.nested.is_some_and(|(parent, _)| parent == source.name))
+            .collect();
+        for item in &nested {
+            unpack(item, work, &download)?;
         }
-        std::fs::create_dir_all(&build)?;
-        match kind {
-            Kind::Autotools => {
-                run(&src.join("configure"), &args, &build, env)?;
-                run(Path::new("make"), &[format!("-j{jobs}")], &build, env)?;
-                run(Path::new("make"), &["install".to_string()], &build, env)?;
+        let hash = recipe_hash(target, source, kind, &nested, &args);
+        let marker = marker_path(prefix, source.name);
+        if std::fs::read_to_string(&marker).is_ok_and(|text| text.trim() == hash) {
+            println!(
+                "{} is already installed (marker matches), skipping",
+                source.name
+            );
+        } else {
+            let build = work.join("build").join(source.name);
+            if build.exists() {
+                std::fs::remove_dir_all(&build)
+                    .with_context(|| format!("clearing {}", build.display()))?;
             }
-            Kind::Meson => {
-                let mut setup = vec!["setup".to_string(), ".".to_string()];
-                setup.push(src.display().to_string());
-                setup.extend(args.iter().cloned());
-                run(Path::new("meson"), &setup, &build, env)?;
-                run(Path::new("meson"), &["compile".to_string()], &build, env)?;
-                run(Path::new("meson"), &["install".to_string()], &build, env)?;
-            }
+            std::fs::create_dir_all(&build)?;
+            compile(source, kind, &args, &src, &build, jobs, env)?;
+            std::fs::create_dir_all(prefix.join(MARKERS_DIR))?;
+            std::fs::write(&marker, format!("{hash}\n"))?;
         }
         built.push(Built {
             source,
             flags: args,
         });
+        for item in nested {
+            let note = format!(
+                "unpacked into {} (a git submodule of its release)",
+                source.name
+            );
+            built.push(Built {
+                source: item,
+                flags: vec![note],
+            });
+        }
     }
     Ok(built)
+}
+
+/// Fetches and unpacks one source (into its parent's folder when it is nested).
+fn unpack(source: &Source, work: &Path, download: &Path) -> Result<PathBuf> {
+    let archive = fetch::fetch(source, download)?;
+    let dir = source.src_dir(work);
+    fetch::unpack_verified(&archive, source.sha256, &dir)?;
+    Ok(dir)
+}
+
+fn compile(
+    source: &Source,
+    kind: Kind,
+    args: &[String],
+    src: &Path,
+    build: &Path,
+    jobs: usize,
+    env: &[(String, String)],
+) -> Result<()> {
+    match kind {
+        Kind::Autotools => {
+            if source.name == "freetype" {
+                // Its configure copies docs/markdown for an out-of-tree build and prints an
+                // error when the folder is missing from the release archive.
+                std::fs::create_dir_all(src.join("docs/markdown"))?;
+            }
+            run(&src.join("configure"), args, build, env)?;
+            run(Path::new("make"), &[format!("-j{jobs}")], build, env)?;
+            run(Path::new("make"), &["install".to_string()], build, env)
+        }
+        Kind::Meson => {
+            let mut setup = vec!["setup".to_string(), ".".to_string()];
+            setup.push(src.display().to_string());
+            setup.extend(args.iter().cloned());
+            run(Path::new("meson"), &setup, build, env)?;
+            run(Path::new("meson"), &["compile".to_string()], build, env)?;
+            run(Path::new("meson"), &["install".to_string()], build, env)
+        }
+    }
 }
 
 #[cfg(test)]
@@ -167,8 +251,13 @@ mod tests {
     fn the_plan_follows_the_source_table_and_names_mpv_last() {
         let plan = plan(Target::Ubuntu, "/p");
         let names: Vec<&str> = plan.iter().map(|(s, _, _)| s.name).collect();
-        let table: Vec<&str> = SOURCES.iter().map(|s| s.name).collect();
+        let table: Vec<&str> = SOURCES
+            .iter()
+            .filter(|s| s.nested.is_none())
+            .map(|s| s.name)
+            .collect();
         assert_eq!(names, table);
+        assert!(!names.contains(&"fast_float") && !names.contains(&"vulkan-headers"));
         assert_eq!(plan.last().unwrap().1, Kind::Meson);
         assert!(plan.iter().all(|(_, _, args)| !args.is_empty()));
     }
@@ -206,5 +295,44 @@ mod tests {
         let linux = required_tools(Target::Ubuntu, "x86_64");
         assert!(linux.contains(&"patchelf") && linux.contains(&"readelf"));
         assert!(!linux.contains(&"otool"));
+    }
+
+    #[test]
+    fn the_recipe_hash_changes_with_the_source_the_flags_the_target_and_the_nested_sources() {
+        let source = crate::libmpv::sources::source("libplacebo");
+        let nested = [crate::libmpv::sources::source("fast_float")];
+        let flags = vec!["-Da=b".to_string()];
+        let base = recipe_hash(Target::Ubuntu, source, Kind::Meson, &nested, &flags);
+        assert_eq!(base.len(), 64);
+        assert_eq!(
+            base,
+            recipe_hash(Target::Ubuntu, source, Kind::Meson, &nested, &flags)
+        );
+        let other_flags = vec!["-Da=c".to_string()];
+        assert_ne!(
+            base,
+            recipe_hash(Target::Ubuntu, source, Kind::Meson, &nested, &other_flags)
+        );
+        assert_ne!(
+            base,
+            recipe_hash(Target::Macos, source, Kind::Meson, &nested, &flags)
+        );
+        assert_ne!(
+            base,
+            recipe_hash(Target::Ubuntu, source, Kind::Meson, &[], &flags)
+        );
+        let ffmpeg = crate::libmpv::sources::source("ffmpeg");
+        assert_ne!(
+            base,
+            recipe_hash(Target::Ubuntu, ffmpeg, Kind::Meson, &nested, &flags)
+        );
+    }
+
+    #[test]
+    fn markers_live_in_a_hidden_folder_of_the_output() {
+        assert_eq!(
+            marker_path(Path::new("/o"), "ffmpeg"),
+            Path::new("/o/.markers/ffmpeg")
+        );
     }
 }

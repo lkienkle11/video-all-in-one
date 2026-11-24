@@ -31,6 +31,14 @@ pub(super) fn sha256_file(path: &Path) -> Result<String> {
         .collect())
 }
 
+/// The lowercase hex SHA-256 of `bytes`.
+pub(super) fn sha256_bytes(bytes: &[u8]) -> String {
+    Sha256::digest(bytes)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
+}
+
 /// Fails unless `path` has the SHA-256 `expected`.
 pub(super) fn verify_hash(path: &Path, expected: &str) -> Result<()> {
     let actual = sha256_file(path)?;
@@ -113,6 +121,7 @@ mod tests {
         let file = dir.join("abc");
         std::fs::write(&file, b"abc").unwrap();
         assert_eq!(sha256_file(&file).unwrap(), ABC);
+        assert_eq!(sha256_bytes(b"abc"), ABC);
         verify_hash(&file, ABC).unwrap();
         std::fs::remove_dir_all(dir).unwrap();
     }

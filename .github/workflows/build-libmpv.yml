@@ -68,17 +68,21 @@ jobs:
       - name: Install the pinned Rust toolchain
         run: rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal --no-self-update
 
-      - name: Cache cargo downloads and the xtask build
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      # Restores the installed components of an earlier run (the output folder with one marker
+      # file per component, plus the cargo and xtask build). A component whose marker matches
+      # its recipe hash is not built again. The unpacked sources are not cached.
+      - name: Restore the earlier build
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cargo/registry/index
             ~/.cargo/registry/cache
             ~/.cargo/git/db
             target
-          key: cargo-libmpv-${{ matrix.os }}-${{ env.RUSTUP_TOOLCHAIN }}-${{ hashFiles('Cargo.lock') }}
+            ${{ runner.temp }}/libmpv
+          key: libmpv-${{ matrix.name }}-${{ github.sha }}
           restore-keys: |
-            cargo-libmpv-${{ matrix.os }}-${{ env.RUSTUP_TOOLCHAIN }}-
+            libmpv-${{ matrix.name }}-
 
       # Only build tools and the audio libraries of the platform; the codec libraries are built
       # from the pinned sources, never installed from the system.
@@ -109,6 +113,20 @@ jobs:
       # It starts every build tool with a clean environment.
       - name: Build libmpv
         run: cargo xtask libmpv build --target "${{ matrix.target }}" --out "$RUNNER_TEMP/libmpv"
+
+      # Saved even when the build failed, so that the next run starts after the last component
+      # that was installed.
+      - name: Save the build for the next run
+        if: always()
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target
+            ${{ runner.temp }}/libmpv
+          key: libmpv-${{ matrix.name }}-${{ github.sha }}
 
       - name: Pack libmpv
         id: pack

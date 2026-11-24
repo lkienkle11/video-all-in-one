@@ -75,7 +75,9 @@ fn build(target: Target, out: &Path) -> Result<()> {
             missing.join(", ")
         );
     }
-    if out.is_dir() && std::fs::read_dir(out)?.next().is_some() {
+    // A folder with markers is a cached earlier build that this run continues.
+    let resuming = out.join(steps::MARKERS_DIR).is_dir();
+    if !resuming && out.is_dir() && std::fs::read_dir(out)?.next().is_some() {
         bail!("{} is not empty; build into a new folder", out.display());
     }
     std::fs::create_dir_all(out).with_context(|| format!("creating {}", out.display()))?;

@@ -20,10 +20,23 @@ pub(crate) struct Source {
     pub file: &'static str,
     /// Licence files inside the unpacked archive, copied into `LICENSES`.
     pub licenses: &'static [&'static str],
+    /// `Some((parent, folder))` for a source that is not built on its own but unpacked into
+    /// `folder` of the unpacked `parent` (the git submodules of the parent's release archive).
+    pub nested: Option<(&'static str, &'static str)>,
+}
+
+impl Source {
+    /// The folder `work/src/...` this source is unpacked into.
+    pub(crate) fn src_dir(&self, work: &std::path::Path) -> std::path::PathBuf {
+        match self.nested {
+            Some((parent, folder)) => work.join("src").join(parent).join(folder),
+            None => work.join("src").join(self.name),
+        }
+    }
 }
 
 /// The components in build order: each one only needs the ones before it.
-pub(crate) const SOURCES: [Source; 7] = [
+pub(crate) const SOURCES: [Source; 9] = [
     Source {
         name: "ffmpeg",
         version: "7.1.5",
@@ -31,6 +44,7 @@ pub(crate) const SOURCES: [Source; 7] = [
         sha256: "de668509caf9e35e3cd162473441fdb29538c6d96ed080292b3cf9e6fc5d558f",
         file: "ffmpeg-7.1.5.tar.xz",
         licenses: &["COPYING.LGPLv2.1", "COPYING.LGPLv3", "LICENSE.md"],
+        nested: None,
     },
     Source {
         name: "freetype",
@@ -39,6 +53,7 @@ pub(crate) const SOURCES: [Source; 7] = [
         sha256: "0550350666d427c74daeb85d5ac7bb353acba5f76956395995311a9c6f063289",
         file: "freetype-2.13.3.tar.xz",
         licenses: &["docs/FTL.TXT"],
+        nested: None,
     },
     Source {
         name: "fribidi",
@@ -47,6 +62,7 @@ pub(crate) const SOURCES: [Source; 7] = [
         sha256: "1b1cde5b235d40479e91be2f0e88a309e3214c8ab470ec8a2744d82a5a9ea05c",
         file: "fribidi-1.0.16.tar.xz",
         licenses: &["COPYING"],
+        nested: None,
     },
     Source {
         name: "harfbuzz",
@@ -55,6 +71,7 @@ pub(crate) const SOURCES: [Source; 7] = [
         sha256: "093714c8548a285094685f0bdc999e202d666b59eeb3df2ff921ab68b8336a49",
         file: "harfbuzz-11.2.1.tar.xz",
         licenses: &["COPYING"],
+        nested: None,
     },
     Source {
         name: "libass",
@@ -63,6 +80,7 @@ pub(crate) const SOURCES: [Source; 7] = [
         sha256: "78f1179b838d025e9c26e8fef33f8092f65611444ffa1bfc0cfac6a33511a05a",
         file: "libass-0.17.4.tar.xz",
         licenses: &["COPYING"],
+        nested: None,
     },
     Source {
         name: "libplacebo",
@@ -71,6 +89,25 @@ pub(crate) const SOURCES: [Source; 7] = [
         sha256: "79120e685a1836344b51b13b6a5661622486a84e4d4a35f6c8d01679a20fbc86",
         file: "libplacebo-7.349.0.tar.gz",
         licenses: &["LICENSE"],
+        nested: None,
+    },
+    Source {
+        name: "fast_float",
+        version: "8.0.2",
+        url: "https://github.com/fastfloat/fast_float/archive/refs/tags/v8.0.2.tar.gz",
+        sha256: "e14a33089712b681d74d94e2a11362643bd7d769ae8f7e7caefe955f57f7eacd",
+        file: "fast_float-8.0.2.tar.gz",
+        licenses: &["LICENSE-MIT", "LICENSE-APACHE"],
+        nested: Some(("libplacebo", "3rdparty/fast_float")),
+    },
+    Source {
+        name: "vulkan-headers",
+        version: "1.4.309",
+        url: "https://github.com/KhronosGroup/Vulkan-Headers/archive/refs/tags/v1.4.309.tar.gz",
+        sha256: "437925ada160d86ed763d29dcb9318c1bb0d024d7deaf77bc7c170b8eb6b6f10",
+        file: "vulkan-headers-1.4.309.tar.gz",
+        licenses: &["LICENSE.md"],
+        nested: Some(("libplacebo", "3rdparty/Vulkan-Headers")),
     },
     Source {
         name: "mpv",
@@ -79,6 +116,7 @@ pub(crate) const SOURCES: [Source; 7] = [
         sha256: "10a0f4654f62140a6dd4d380dcf0bbdbdcf6e697556863dc499c296182f081a3",
         file: "mpv-0.40.0.tar.gz",
         licenses: &["LICENSE.LGPL", "Copyright"],
+        nested: None,
     },
 ];
 
@@ -136,6 +174,18 @@ mod tests {
         assert_eq!(names.len(), SOURCES.len());
         assert_eq!(hashes.len(), SOURCES.len());
         assert_eq!(files.len(), SOURCES.len());
+    }
+
+    #[test]
+    fn nested_sources_name_a_parent_that_is_built_before_them() {
+        for (index, source) in SOURCES.iter().enumerate() {
+            if let Some((parent, folder)) = source.nested {
+                let at = SOURCES.iter().position(|s| s.name == parent).unwrap();
+                assert!(at < index, "{} comes before its parent", source.name);
+                assert!(SOURCES[at].nested.is_none());
+                assert!(!folder.starts_with('/') && !folder.contains(".."));
+            }
+        }
     }
 
     #[test]

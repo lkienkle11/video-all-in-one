@@ -167,6 +167,8 @@ pub(super) fn mpv_meson(target: Target, prefix: &str) -> Vec<String> {
         "-Dsndio=disabled",
         "-Doss-audio=disabled",
         "-Dpipewire=disabled",
+        "-Davfoundation=disabled",
+        "-Daudiounit=disabled",
     ]));
     let (on, off) = match target {
         Target::Ubuntu => (["alsa", "pulse"].as_slice(), ["coreaudio"].as_slice()),
@@ -259,6 +261,7 @@ mod tests {
         }
         let mac = mpv_meson(Target::Macos, "/p");
         assert!(has(&mac, "-Dcoreaudio=enabled"));
+        assert!(has(&mac, "-Davfoundation=disabled") && has(&mac, "-Daudiounit=disabled"));
         assert!(has(&mac, "-Dalsa=disabled") && has(&mac, "-Dpulse=disabled"));
         assert!(has(&mac, "-Dgpl=false"));
         assert!(!mac.iter().any(|arg| arg == "-Dgpl=true"));

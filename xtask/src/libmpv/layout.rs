@@ -154,7 +154,7 @@ fn write_licenses(out: &Path, work: &Path, built: &[Built]) -> Result<()> {
     let folder = out.join("LICENSES");
     fs::create_dir_all(&folder)?;
     for item in built {
-        let src = work.join("src").join(item.source.name);
+        let src = item.source.src_dir(work);
         for file in item.source.licenses {
             let from = src.join(file);
             let base = Path::new(file)
