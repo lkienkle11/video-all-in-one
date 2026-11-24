@@ -40,7 +40,10 @@ jobs:
   # and not the sum of both. Every job must finish in under 10 minutes on a cold cache.
   check:
     name: ${{ matrix.task }} (${{ matrix.target }})
-    runs-on: ${{ fromJSON('{"macos-apple-silicon":"macos-15","macos-intel":"macos-15-intel","windows":"windows-2025","ubuntu-22.04":"ubuntu-22.04"}')[matrix.target] }}
+    # The Apple Silicon lint job runs on macos-14 and its test job on macos-15: both are Apple
+    # Silicon, but two jobs that ask for the same pool queued for the full 15 minutes together and
+    # were cancelled by GitHub when the pool was short.
+    runs-on: ${{ (matrix.task == 'lint' && matrix.target == 'macos-apple-silicon') && 'macos-14' || fromJSON('{"macos-apple-silicon":"macos-15","macos-intel":"macos-15-intel","windows":"windows-2025","ubuntu-22.04":"ubuntu-22.04"}')[matrix.target] }}
     timeout-minutes: 30
     strategy:
       fail-fast: false
