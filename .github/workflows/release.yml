@@ -7,6 +7,9 @@ on:
   push:
     tags:
       - "v*"
+  # A manual run builds and packages on every OS but signs and publishes nothing: it tries the
+  # installers without making a tag.
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -37,6 +40,7 @@ env:
 jobs:
   verify:
     name: check the tag
+    if: github.ref_type == 'tag'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     defaults:
@@ -86,6 +90,7 @@ jobs:
   build:
     name: build (${{ matrix.name }})
     needs: verify
+    if: ${{ !cancelled() && (needs.verify.result == 'success' || needs.verify.result == 'skipped') }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 120
     strategy:
@@ -361,6 +366,7 @@ jobs:
   publish:
     name: sign and publish
     needs: [verify, build]
+    if: github.ref_type == 'tag'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
