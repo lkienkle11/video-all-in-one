@@ -1,0 +1,8 @@
+# Checkouts use LF on every system, so test fixtures and generated files compare equal on Windows.
+* text=auto eol=lf
+*.png binary
+*.ico binary
+*.icns binary
+*.mp4 binary
+*.7z binary
+*.zip binary

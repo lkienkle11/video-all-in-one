@@ -139,6 +139,8 @@ mod tests {
         assert_eq!(decide(false, false), RecoveryAction::Report);
     }
 
+    // The recovery marker belongs to the macOS bundle swap; its paths are Unix paths.
+    #[cfg(unix)]
     #[test]
     fn marker_round_trips_and_is_cleared() {
         let dir = TempDir::new();

@@ -193,7 +193,7 @@ fn check_passes_on_fresh_files_and_fails_on_a_changed_or_missing_file() {
     let mut bytes = fs::read(&ico).unwrap();
     *bytes.last_mut().unwrap() ^= 0xff;
     fs::write(&ico, bytes).unwrap();
-    let message = format!("{:#}", run(&root, true).unwrap_err());
+    let message = format!("{:#}", run(&root, true).unwrap_err()).replace('\\', "/");
     assert!(message.contains("development/icon.ico"), "{message}");
     let _ = fs::remove_dir_all(&root);
 }

@@ -176,6 +176,8 @@ fn directory_named_like_the_tool_is_skipped() {
     ));
 }
 
+// Building a relative path to a temp folder needs both on one drive, which Windows does not guarantee.
+#[cfg(unix)]
 #[test]
 fn relative_and_empty_path_entries_are_ignored() {
     let tmp = TempDir::new("relative");

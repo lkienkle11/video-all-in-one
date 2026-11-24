@@ -455,6 +455,7 @@ async fn export_does_not_block_the_ui_thread(cx: &mut TestAppContext) {
     assert!(payload.out_dir.join("clip-01.mp4").is_file());
 }
 
+#[cfg(unix)] // the test spells absolute paths the Unix way
 #[gpui_kit::test]
 async fn output_folder_defaults_next_to_the_source_in_a_new_subfolder_never_over_it(
     cx: &mut TestAppContext,

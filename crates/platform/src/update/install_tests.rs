@@ -39,6 +39,8 @@ impl Drop for Fixture {
     }
 }
 
+// The helper modes run on macOS and Linux only; their test paths are Unix paths.
+#[cfg(unix)]
 #[test]
 fn apply_argument_parser_rejects_malformed_requests() {
     let args = |values: &[&str]| values.iter().map(OsString::from).collect::<Vec<_>>();
@@ -84,6 +86,7 @@ fn helper_mode_starts_only_from_argument_zero() {
     }
 }
 
+#[cfg(unix)]
 #[test]
 fn deb_helper_arguments_are_validated() {
     let args = |values: &[&str]| values.iter().map(OsString::from).collect::<Vec<_>>();

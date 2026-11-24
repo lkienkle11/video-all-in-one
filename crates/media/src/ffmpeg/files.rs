@@ -80,15 +80,12 @@ fn rename_exclusive(source: &Path, destination: &Path) -> io::Result<()> {
     }
 }
 
-#[cfg(windows)]
+// std::fs::rename also replaces an existing destination on Windows (MoveFileEx with
+// MOVEFILE_REPLACE_EXISTING), so it must not be used here. A hard link fails when the
+// destination exists, which makes the publication exclusive; the temporary name is removed
+// afterwards. Source and destination are in the same folder, hence on the same volume.
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
 fn rename_exclusive(source: &Path, destination: &Path) -> io::Result<()> {
-    // Windows std::fs::rename refuses an existing destination file.
-    fs::rename(source, destination)
-}
-
-#[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
-fn rename_exclusive(source: &Path, destination: &Path) -> io::Result<()> {
-    // Same-volume publication without replacement on other targets.
     fs::hard_link(source, destination)?;
     fs::remove_file(source)
 }
