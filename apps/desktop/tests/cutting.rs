@@ -1,7 +1,9 @@
 use gpui_kit::test::TestWindowExt;
 use gpui_kit::{px, size, AppContext, Bounds, Entity, TestAppContext, WindowBounds, WindowOptions};
+#[cfg(unix)]
+use std::path::Path;
 use std::{
-    path::{Path, PathBuf},
+    path::PathBuf,
     sync::{Arc, OnceLock},
     time::{Duration, Instant},
 };
@@ -21,8 +23,9 @@ use vaio_core::{
     settings::Settings,
     update::UpdateState,
 };
+#[cfg(unix)]
+use vaio_desktop::commands::export::default_output_dir;
 use vaio_desktop::{
-    commands::export::default_output_dir,
     state::AppState,
     ui::{settings::SettingsView, workspace::WorkspaceView},
 };
