@@ -46,8 +46,8 @@ Release: v0.1.0, then v0.1.1 to prove the update. Status: `todo`.
 | 1.5 | `set-version` and tag checks (Rust `xtask`) | done |
 | 1.6 | Signing key pair and GitHub Secrets | blocked: needs the user (`cargo xtask keygen`, secret, repository variable, tag protection; steps in `docs/RELEASING.md`) |
 | 1.7 | Release workflow and `latest.json` | in progress (workflow written, not run on GitHub) |
-| 1.8 | Updater module and per-OS install steps | in progress (service, HTTP backend and install code done; real installs on each OS not proven; backend not yet wired into the app) |
-| 1.9 | Settings: version and update states, update dialog | in progress (views done, driven by a passed-in state; not connected to the updater) |
+| 1.8 | Updater module and per-OS install steps | in progress (service, HTTP backend, install code and the app wiring done; a real update on each OS not proven; needs the signing key) |
+| 1.9 | Settings: version and update states, update dialog | done (connected to the updater in the production channel; refuses until a real public key is set) |
 | 1.10 | Bilingual CHANGELOG and `docs/RELEASING.md` | done |
 | 1.11 | CI on three OS plus the 85% Rust check | in progress (workflow written, not run) |
 | 1.12 | Localization layer, language modal on first launch, language setting, shared modal behavior | done (manual look in a window not done) |
