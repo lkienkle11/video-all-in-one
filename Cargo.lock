@@ -7764,6 +7764,7 @@ name = "vaio-desktop"
 version = "0.0.0"
 dependencies = [
  "gpui-kit",
+ "vaio-core",
  "vaio-platform",
 ]
 
@@ -7781,6 +7782,7 @@ version = "0.0.0"
 dependencies = [
  "base64 0.23.1",
  "ed25519-dalek",
+ "serde_json",
  "sha2 0.11.1",
  "vaio-core",
 ]
