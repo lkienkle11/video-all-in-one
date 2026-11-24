@@ -28,6 +28,7 @@ pub struct SettingsView {
     state: UpdateState,
     callback: UpdateCallback,
     save_failed: bool,
+    updates_unavailable: bool,
 }
 impl SettingsView {
     /// Creates a view of caller-supplied update state. No update I/O is started.
@@ -46,10 +47,17 @@ impl SettingsView {
             state,
             callback: Rc::new(callback),
             save_failed: false,
+            updates_unavailable: false,
         }
     }
     pub fn set_update_state(&mut self, state: UpdateState, cx: &mut Context<Self>) {
         self.state = state;
+        self.updates_unavailable = false;
+        cx.notify();
+    }
+    /// This build cannot update (no public key or manifest URL): say so instead of a state.
+    pub fn set_updates_unavailable(&mut self, cx: &mut Context<Self>) {
+        self.updates_unavailable = true;
         cx.notify();
     }
     pub(crate) fn needs_language_choice(&self) -> bool {
@@ -149,6 +157,11 @@ impl SettingsView {
                 tr(language, Text::UpdateFailed).to_owned(),
                 Some((Text::UpdateRetry, UpdateCommand::Check)),
             ),
+        };
+        let status = if self.updates_unavailable {
+            tr(language, Text::UpdateNotSetUp).to_owned()
+        } else {
+            status
         };
         let callback = self.callback.clone();
         div()

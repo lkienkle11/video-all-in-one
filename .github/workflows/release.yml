@@ -170,6 +170,8 @@ jobs:
       # Never --workspace here: Cargo unifies features across the workspace and would turn
       # every crate into a production build.
       - name: Build the production app
+        env:
+          VAIO_UPDATE_MANIFEST_URL: https://github.com/${{ github.repository }}/releases/latest/download/latest.json
         run: cargo build --locked --release -p vaio-desktop --features production
 
       - name: Package (macOS)

@@ -12,6 +12,7 @@ use vaio_core::{
 };
 use vaio_desktop::app::AppView;
 use vaio_desktop::state::{AppState, ToolSearch};
+use vaio_desktop::update_wiring::UpdateSetup;
 use vaio_media::{
     export_runner::{FfmpegExportRunner, ToolPathsCell},
     ffmpeg::FfmpegPaths,
@@ -55,7 +56,21 @@ fn main() {
             };
             if let Err(error) = gpui_kit::open_window(options, cx, |window, cx| {
                 let state = cx.new(|_| state);
-                cx.new(|cx| AppView::with_store(store, channel, state, window, cx))
+                let updates = match vaio_desktop::app::data_base() {
+                    Some(base) => UpdateSetup::for_app(channel, data_dir(channel, &base)),
+                    None => UpdateSetup::disabled(),
+                };
+                cx.new(|cx| {
+                    AppView::with_updates(
+                        store,
+                        channel,
+                        state,
+                        updates,
+                        |cx| cx.quit(),
+                        window,
+                        cx,
+                    )
+                })
             }) {
                 eprintln!("Failed to open application window: {error:#}");
                 cx.quit();

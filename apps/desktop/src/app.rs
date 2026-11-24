@@ -2,10 +2,12 @@ use crate::{
     state::AppState,
     ui::{
         language_modal::LanguageModal, missing_tools::ensure_tools, settings::SettingsView,
-        workspace::WorkspaceView,
+        update_error::show_update_error, workspace::WorkspaceView,
     },
+    update_wiring::{UpdateController, UpdateSetup},
 };
-use gpui_kit::{AppContext, Context, Entity, IntoElement, Render, Window};
+use gpui_kit::{App, AppContext, Context, Entity, IntoElement, Render, Window};
+use std::rc::Rc;
 use vaio_core::update::UpdateState;
 use vaio_platform::{channel::Channel, paths::data_dir, settings_store::SettingsStore};
 
@@ -21,8 +23,65 @@ impl AppView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
-        let settings =
-            cx.new(|cx| SettingsView::new(store, channel, UpdateState::Idle, |_, _, _| {}, cx));
+        Self::with_updates(
+            store,
+            channel,
+            state,
+            UpdateSetup::disabled(),
+            |cx| cx.quit(),
+            window,
+            cx,
+        )
+    }
+
+    /// Like `with_store`, with the update service to run and what to do when an install asks
+    /// the app to restart. Without a production channel the service is never touched.
+    pub fn with_updates(
+        store: SettingsStore,
+        channel: Channel,
+        state: Entity<AppState>,
+        mut setup: UpdateSetup,
+        on_restart: impl Fn(&mut App) + 'static,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        // The development channel never touches the update service.
+        if !channel.updates_enabled() {
+            setup.driver = None;
+            setup.start_check = false;
+        }
+        let data_dir = setup.data_dir.take();
+        let start_check = setup.start_check;
+        let controller = UpdateController::new(
+            &mut setup,
+            state.read(cx).runtime().clone(),
+            Rc::new(on_restart),
+        );
+        let callback = controller.clone();
+        let settings = cx.new(|cx| {
+            SettingsView::new(
+                store,
+                channel,
+                UpdateState::Idle,
+                move |command, window, cx| callback.command(command, window, cx),
+                cx,
+            )
+        });
+        controller.attach(settings.downgrade());
+        if let Some(data_dir) = data_dir {
+            // Settle an interrupted swap first, then tell the user what the helper left behind.
+            vaio_platform::update::recover_interrupted_update(&data_dir);
+            let settings = settings.clone();
+            cx.defer_in(window, move |_, window, cx| {
+                let language = settings.read(cx).language();
+                show_update_error(&data_dir, language, window, cx);
+            });
+        }
+        if start_check {
+            cx.defer_in(window, move |_, window, cx| {
+                controller.check_at_start(window, cx)
+            });
+        }
         window.set_window_title(vaio_core::i18n::tr(
             settings.read(cx).language(),
             vaio_core::i18n::Text::AppTitle,

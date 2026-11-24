@@ -31,6 +31,7 @@ Do these once, on your own machine. The agent that wrote the pipeline did not do
    This writes `update-signing.key` (private, mode 0600, never overwritten) and `update-signing.pub` (public, base64), and prints the public key as the Rust constant `UPDATE_PUBLIC_KEY`.
 
 2. Put the printed constant into `crates/platform/src/update/public_key.rs`. Build and commit it. Every app built from this commit trusts only this key.
+   The production build reads the manifest address from the build variable `VAIO_UPDATE_MANIFEST_URL`, which `release.yml` sets to `https://github.com/<owner>/<repo>/releases/latest/download/latest.json` for the production build step. While `UPDATE_PUBLIC_KEY` is still all zeros, or the variable is missing, the app shows "Updates are not set up in this build." and downloads nothing.
 3. Back up `update-signing.key` now (see "Key backup and rotation").
 4. In the GitHub repository, Settings, Secrets and variables, Actions:
    - Secret `UPDATE_SIGNING_KEY`: the content of `update-signing.key`. Set it without printing it: `gh secret set UPDATE_SIGNING_KEY < ~/video-all-in-one-keys/update-signing.key`.

@@ -117,5 +117,7 @@ pub fn text(text: Text) -> &'static str {
         Text::MissingToolFolder => "Folder with FFmpeg and FFprobe",
         Text::MissingToolCheck => "Check",
         Text::MissingToolInvalid => "FFmpeg and FFprobe were not both found in that folder.",
+        Text::UpdateNotSetUp => "Updates are not set up in this build.",
+        Text::UpdateErrorFileTitle => "The last update did not finish",
     }
 }

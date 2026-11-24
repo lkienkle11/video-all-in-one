@@ -3,4 +3,5 @@ pub mod missing_tools;
 pub mod modal;
 pub mod settings;
 pub mod update_dialog;
+pub mod update_error;
 pub mod workspace;

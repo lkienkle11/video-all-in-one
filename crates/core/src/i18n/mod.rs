@@ -132,11 +132,13 @@ pub enum Text {
     MissingToolFolder,
     MissingToolCheck,
     MissingToolInvalid,
+    UpdateNotSetUp,
+    UpdateErrorFileTitle,
 }
 
 impl Text {
     /// Every text key, in the same order as the enum.
-    pub const ALL: [Text; 100] = [
+    pub const ALL: [Text; 102] = [
         Text::AppTitle,
         Text::ChooseLanguageTitle,
         Text::ChooseLanguageBody,
@@ -237,6 +239,8 @@ impl Text {
         Text::MissingToolFolder,
         Text::MissingToolCheck,
         Text::MissingToolInvalid,
+        Text::UpdateNotSetUp,
+        Text::UpdateErrorFileTitle,
     ];
 }
 

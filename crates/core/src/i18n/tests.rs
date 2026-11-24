@@ -208,6 +208,8 @@ fn index(t: Text) -> usize {
         Text::MissingToolFolder => 97,
         Text::MissingToolCheck => 98,
         Text::MissingToolInvalid => 99,
+        Text::UpdateNotSetUp => 100,
+        Text::UpdateErrorFileTitle => 101,
     }
 }
 
@@ -221,7 +223,7 @@ fn text_all_lists_every_variant_in_enum_order() {
         );
     }
     // The last variant has the highest index.
-    let highest = index(Text::MissingToolInvalid);
+    let highest = index(Text::UpdateErrorFileTitle);
     assert_eq!(
         Text::ALL.len(),
         highest + 1,

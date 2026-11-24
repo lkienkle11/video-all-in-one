@@ -107,5 +107,7 @@ pub fn text(text: Text) -> &'static str {
         Text::MissingToolFolder => "Thư mục chứa FFmpeg và FFprobe",
         Text::MissingToolCheck => "Kiểm tra",
         Text::MissingToolInvalid => "Không tìm thấy đủ FFmpeg và FFprobe trong thư mục đó.",
+        Text::UpdateNotSetUp => "Bản dựng này chưa được thiết lập cập nhật.",
+        Text::UpdateErrorFileTitle => "Lần cập nhật trước chưa hoàn tất",
     }
 }
