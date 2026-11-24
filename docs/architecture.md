@@ -43,6 +43,7 @@ crates/core/src/services | Plans media exports and schedules durable jobs with s
 crates/core/src/update | Parses and validates the update manifest and decides whether a newer version is offered, without I/O.
 crates/media | Implements media processing and playback integrations.
 crates/media/src/ffmpeg | Derives planned durations and owns exclusive output publication and rollback for export execution.
+crates/media/src/player | Implements the VideoPlayer port with libmpv: a software render bridge, its render thread, stream metadata and the player type.
 crates/media/src/process_runner | Owns native process-tree cleanup and bounded, secret-redacted subprocess output decoding.
 crates/platform | Provides operating system integration and external tool resolution.
 crates/platform/src/update | Fetches updates over HTTPS, stages and verifies artifacts, and installs or reveals them with per-OS commands and macOS bundle rollback.
