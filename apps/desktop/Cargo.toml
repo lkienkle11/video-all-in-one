@@ -17,3 +17,9 @@ production = ["vaio-platform/production"]
 
 [dev-dependencies]
 gpui-kit = { workspace = true, features = ["test-support"] }
+
+[[bin]]
+name = "vaio-recovery-child"
+path = "tests/bin/recovery_child.rs"
+test = false
+doc = false

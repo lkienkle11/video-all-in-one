@@ -92,6 +92,11 @@ impl JobScheduler {
                 ));
             }
             for id in queue.store.recover_interrupted()? {
+                let job = queue.store.get(id)?.job;
+                queue
+                    .runner
+                    .cleanup_temp(&job)
+                    .map_err(|error| StoreError::Backend(error.to_string()))?;
                 queue
                     .events
                     .send(JobEvent::StateChanged(id, JobState::Failed));

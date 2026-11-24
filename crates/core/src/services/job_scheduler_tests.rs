@@ -77,6 +77,43 @@ async fn recover_schedules_persisted_queued_jobs() {
 }
 
 #[tokio::test]
+async fn recovery_cleans_each_interrupted_job_before_scheduling_queued_work() {
+    let mut h = Harness::new();
+    let first = h.store.insert(JobKind::Cut, "first export").unwrap();
+    let second = h.store.insert(JobKind::Merge, "second export").unwrap();
+    for id in [first, second] {
+        h.store.transition(id, JobState::Running, None).unwrap();
+        h.runner.stale.lock().unwrap().push(id);
+    }
+    let queued = h.store.insert(JobKind::Cut, "queued export").unwrap();
+    h.scheduler.recover().await.unwrap();
+    assert!(h.runner.stale.lock().unwrap().is_empty());
+    assert_eq!(*h.runner.cleaned.lock().unwrap(), vec![first, second]);
+    for id in [first, second] {
+        let job = h.store.get(id).unwrap().job;
+        assert_eq!(job.state(), JobState::Failed);
+        assert_eq!(job.error(), Some("interrupted"));
+    }
+    let run = h.started().await;
+    assert_eq!(run.job.id(), queued);
+    run.finish.send(Outcome::Success).ok().unwrap();
+    h.state(queued, JobState::Succeeded).await;
+}
+
+#[tokio::test]
+async fn recovery_cleanup_failure_is_readable_and_does_not_start_queued_work() {
+    let h = Harness::new();
+    let old = h.store.insert(JobKind::Cut, "interrupted export").unwrap();
+    h.store.transition(old, JobState::Running, None).unwrap();
+    let queued = h.store.insert(JobKind::Cut, "queued export").unwrap();
+    *h.runner.cleanup_error.lock().unwrap() = true;
+    let error = h.scheduler.recover().await.unwrap_err();
+    assert!(error.to_string().contains("temp file is locked"));
+    assert_eq!(h.store.get(old).unwrap().job.state(), JobState::Failed);
+    assert_eq!(h.store.get(queued).unwrap().job.state(), JobState::Queued);
+}
+
+#[tokio::test]
 async fn progress_is_correlated_and_closed_event_receiver_does_not_stop_jobs() {
     use crate::ports::events::JobEvent;
     let mut h = Harness::new();
