@@ -344,15 +344,22 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $installer = (Get-ChildItem dist\video-all-in-one-*-windows-x86_64.exe).FullName
-          Start-Process -FilePath $installer -ArgumentList '/S' -Wait
+          # Not `Start-Process -Wait`: it also waits for every process the started one launches,
+          # and the installer starts the app and leaves it running, so it never returned.
+          $install = Start-Process -FilePath $installer -ArgumentList '/S' -PassThru
+          if (-not $install.WaitForExit(180000)) { $install.Kill(); throw 'the installer did not finish in three minutes' }
+          if ($install.ExitCode -ne 0) { throw "the installer exited with code $($install.ExitCode)" }
           $dir = Join-Path $env:LOCALAPPDATA 'Programs\Video All-in-One'
           if (-not (Test-Path (Join-Path $dir 'video-all-in-one.exe'))) { throw 'the app was not installed' }
           if (-not (Test-Path (Join-Path $dir 'libmpv-2.dll'))) { throw 'libmpv-2.dll was not installed' }
           # A silent install starts the app, as it does after an update.
           Stop-Process -Name 'video-all-in-one' -Force -ErrorAction SilentlyContinue
           Start-Sleep -Seconds 2
-          Start-Process -FilePath (Join-Path $dir 'uninstall.exe') -ArgumentList '/S' -Wait
-          Start-Sleep -Seconds 3
+          # uninstall.exe copies itself to a temporary folder and exits at once, so wait for the
+          # files to disappear instead of for the process.
+          Start-Process -FilePath (Join-Path $dir 'uninstall.exe') -ArgumentList '/S' | Out-Null
+          $deadline = (Get-Date).AddSeconds(90)
+          while ((Test-Path (Join-Path $dir 'video-all-in-one.exe')) -and ((Get-Date) -lt $deadline)) { Start-Sleep -Seconds 2 }
           if (Test-Path (Join-Path $dir 'video-all-in-one.exe')) { throw 'the app was not removed' }
 
       - name: Keep the installers and update artifacts
