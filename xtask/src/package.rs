@@ -48,6 +48,12 @@ pub struct Options {
     pub allow_gpl: bool,
 }
 
+/// `path` made absolute without touching the file system (and without the `\\?\` prefix that
+/// `canonicalize` adds on Windows, which `makensis` does not accept).
+pub fn absolute_out(path: &Path) -> Result<PathBuf> {
+    std::path::absolute(path).with_context(|| format!("making {} absolute", path.display()))
+}
+
 /// The CPU the package is for: the `--arch` value, or this machine's.
 pub fn effective_arch(arg: Option<&str>) -> &str {
     arg.unwrap_or(std::env::consts::ARCH)
@@ -129,6 +135,9 @@ pub fn run(root: &Path, options: &Options) -> Result<()> {
         .clone()
         .unwrap_or_else(|| root.join("target/package"));
     std::fs::create_dir_all(&out).with_context(|| format!("creating {}", out.display()))?;
+    // An absolute folder: makensis reads relative paths of the script from the script's own
+    // folder, so a relative `--out dist` made it look for `dist\dist\icon.ico`.
+    let out = absolute_out(&out)?;
     let key = platform_key(options.target, effective_arch(options.arch.as_deref()))?;
     match options.target {
         Target::Macos => macos::build(
@@ -201,7 +210,14 @@ pub(crate) fn run_tool(command: &mut Command) -> Result<()> {
 
 #[cfg(test)]
 mod arch_tests {
-    use super::{effective_arch, platform_key, Target};
+    use super::{absolute_out, effective_arch, platform_key, Target};
+
+    #[test]
+    fn a_relative_output_folder_becomes_absolute() {
+        let out = absolute_out(std::path::Path::new("dist")).unwrap();
+        assert!(out.is_absolute(), "{}", out.display());
+        assert!(out.ends_with("dist"));
+    }
 
     #[test]
     fn an_explicit_arch_decides_the_platform_key() {
