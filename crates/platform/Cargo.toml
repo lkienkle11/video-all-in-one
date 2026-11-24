@@ -12,3 +12,8 @@ sha2.workspace = true
 ed25519-dalek.workspace = true
 base64.workspace = true
 serde_json.workspace = true
+reqwest.workspace = true
+url.workspace = true
+
+[dev-dependencies]
+tiny_http.workspace = true
