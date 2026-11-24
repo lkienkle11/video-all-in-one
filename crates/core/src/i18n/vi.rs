@@ -94,6 +94,9 @@ pub fn text(text: Text) -> &'static str {
         Text::ExportErrorFolderIsFile => "Thư mục xuất là một tệp đã có sẵn.",
         Text::ExportErrorFolderCreate => "Không thể tạo thư mục xuất.",
         Text::ExportErrorOverwrite => "Tệp xuất sẽ ghi đè video nguồn.",
+        Text::ExportErrorUnsafePath => {
+            "Đường dẫn video hoặc thư mục xuất chứa ký tự điều khiển, chẳng hạn xuống dòng."
+        }
         Text::ExportErrorSubmit => "Không thể thêm vào hàng đợi. Hãy thử lại.",
         Text::ProcessAllButton => "Xử lý tất cả",
         Text::ProcessAllQueued => "Đã đưa {0} tác vụ xuất vào hàng đợi.",

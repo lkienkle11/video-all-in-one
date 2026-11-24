@@ -3,7 +3,8 @@
 use std::path::{Path, PathBuf};
 
 use crate::domain::export::{CutMode, ExportMode, PlanError};
-use crate::services::media_planner_fixtures::{full_info, plan, plan_stem, plan_with, seg};
+use crate::services::media_planner::{plan_export, ExportRequest};
+use crate::services::media_planner_fixtures::{full_info, never, plan, plan_stem, plan_with, seg};
 
 #[test]
 fn relative_source_starting_with_a_dash_is_rejected() {
@@ -335,4 +336,41 @@ fn numbering_skips_every_taken_number() {
     )
     .unwrap();
     assert_eq!(plan.outputs, vec![PathBuf::from("/out/clip (4).mp4")]);
+}
+
+fn plan_paths(source: &str, out_dir: &str, stem: &str) -> Result<(), PlanError> {
+    let info = full_info();
+    let segments = [seg(0, 1_000)];
+    let request = ExportRequest {
+        info: &info,
+        source: Path::new(source),
+        segments: &segments,
+        cut: CutMode::Fast,
+        export: ExportMode::Merged,
+        out_dir: Path::new(out_dir),
+        stem,
+    };
+    plan_export(&request, &never).map(|_| ())
+}
+
+#[test]
+fn control_characters_in_source_out_dir_or_stem_are_refused() {
+    assert_eq!(plan_paths("/videos/in.mp4", "/out", "clip"), Ok(()));
+    for bad in ["\n", "\r", "\t", "\u{7}", "\u{0}"] {
+        assert_eq!(
+            plan_paths(&format!("/videos/a{bad}b/in.mp4"), "/out", "clip"),
+            Err(PlanError::UnsafePath),
+            "source {bad:?}"
+        );
+        assert_eq!(
+            plan_paths("/videos/in.mp4", &format!("/out/x{bad}y"), "clip"),
+            Err(PlanError::UnsafePath),
+            "out_dir {bad:?}"
+        );
+        assert_eq!(
+            plan_paths("/videos/in.mp4", "/out", &format!("c{bad}d")),
+            Err(PlanError::InvalidStem),
+            "stem {bad:?}"
+        );
+    }
 }

@@ -116,13 +116,19 @@ pub fn plan_export(
     })
 }
 
-/// Checks paths, stem, segments and their bounds, in that order.
+/// Checks paths (absolute, no control characters), stem, segments and their bounds, in that order.
 fn validate(request: &ExportRequest<'_>) -> Result<(), PlanError> {
     if !request.source.is_absolute() {
         return Err(PlanError::NotAbsolute(request.source.to_path_buf()));
     }
     if !request.out_dir.is_absolute() {
         return Err(PlanError::NotAbsolute(request.out_dir.to_path_buf()));
+    }
+    if [request.source, request.out_dir]
+        .iter()
+        .any(|path| path.to_string_lossy().chars().any(char::is_control))
+    {
+        return Err(PlanError::UnsafePath);
     }
     if !valid_stem(request.stem) {
         return Err(PlanError::InvalidStem);

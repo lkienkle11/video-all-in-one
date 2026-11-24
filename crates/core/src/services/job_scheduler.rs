@@ -240,6 +240,10 @@ impl Queue {
         });
     }
 
+    /// Runs the job on the runtime. When `execute` fails, including a failed closing write to
+    /// Succeeded, Failed or Cancelled, the job is removed from the active map and
+    /// `JobEvent::Failed` is sent; no `StateChanged` is claimed. The stored state may then
+    /// still read Running: only `recover()` repairs it, at the next startup.
     fn schedule(self: &Arc<Self>, job: Job, active: &mut HashMap<JobId, CancellationToken>) {
         let token = CancellationToken::new();
         active.insert(job.id(), token.clone());

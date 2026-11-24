@@ -13,7 +13,7 @@ mod service_retry_tests;
 mod service_tests;
 mod staged;
 mod state;
-mod verify_error;
+mod verify;
 
 pub use available::AvailableUpdate;
 pub use decide::{decide, UpdateDecision};
@@ -22,4 +22,4 @@ pub use manifest::{parse_manifest, Asset, Manifest, ManifestError, MAX_ASSET_SIZ
 pub use service::UpdateService;
 pub use staged::StagedFile;
 pub use state::UpdateState;
-pub use verify_error::VerifyError;
+pub use verify::{signed_message, UpdateClaim, VerifyError};

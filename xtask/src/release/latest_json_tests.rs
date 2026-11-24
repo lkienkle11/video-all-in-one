@@ -32,11 +32,14 @@ pub(crate) fn public_key(seed: &[u8; 32]) -> [u8; 32] {
     SigningKey::from_bytes(seed).verifying_key().to_bytes()
 }
 
-/// Writes an artifact and its `.sig` file: the Ed25519 signature of the SHA-256 digest bytes.
+/// Writes an artifact and its `.sig` file: the Ed25519 signature of the claim message built
+/// from the version and platform in `name`, the size and the SHA-256 digest.
 pub(crate) fn signed_artifact(dir: &Path, name: &str, bytes: &[u8], seed: &[u8; 32]) {
     fs::write(dir.join(name), bytes).unwrap();
     let digest: [u8; 32] = Sha256::digest(bytes).into();
-    let signature = SigningKey::from_bytes(seed).sign(&digest);
+    let (platform, version) = crate::release::latest_json::match_artifact(name).unwrap();
+    let message = vaio_core::update::signed_message(version, platform, bytes.len() as u64, &digest);
+    let signature = SigningKey::from_bytes(seed).sign(&message);
     let encoded = base64::engine::general_purpose::STANDARD.encode(signature.to_bytes());
     fs::write(dir.join(format!("{name}.sig")), format!("{encoded}\n")).unwrap();
 }
@@ -267,4 +270,30 @@ fn rejects_a_version_with_pre_release_text() {
     let result = build_manifest("0.1.0-beta", &notes(), &root, BASE, &public_key(&SEED), &[]);
 
     assert!(result.is_err());
+}
+
+#[test]
+fn signature_made_for_another_version_or_platform_or_size_is_refused() {
+    let root = Fixture::new();
+    full_set(&root);
+    let name = ARTIFACTS[3];
+    let bytes = fs::read(root.join(name)).unwrap();
+    let digest: [u8; 32] = Sha256::digest(&bytes).into();
+    let size = bytes.len() as u64;
+    let cases = [
+        ("9.9.9", "linux-x86_64", size),
+        ("0.1.0", "windows-x86_64", size),
+        ("0.1.0", "linux-x86_64", size + 1),
+    ];
+    for (version, platform, signed_size) in cases {
+        let message = vaio_core::update::signed_message(version, platform, signed_size, &digest);
+        let signature = SigningKey::from_bytes(&SEED).sign(&message);
+        let encoded = base64::engine::general_purpose::STANDARD.encode(signature.to_bytes());
+        fs::write(root.join(format!("{name}.sig")), format!("{encoded}\n")).unwrap();
+        let error = build(&root).unwrap_err();
+        assert!(
+            format!("{error:#}").contains("failed signature check"),
+            "{version} {platform} {signed_size}: {error:#}"
+        );
+    }
 }

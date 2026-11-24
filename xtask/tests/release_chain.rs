@@ -4,7 +4,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use vaio_core::update::parse_manifest;
+use vaio_core::update::{parse_manifest, UpdateClaim};
 use vaio_platform::update::verify::verify_artifact;
 
 static NEXT: AtomicUsize = AtomicUsize::new(0);
@@ -131,15 +131,29 @@ fn keygen_sign_latest_json_and_verify_the_chain() {
     assert_eq!(manifest.assets.len(), 3);
     let linux = &manifest.assets["linux-x86_64"];
     let bytes = fs::read(assets.join(SIGNED[2])).unwrap();
-    let digest: [u8; 32] = Sha256::digest(&bytes).into();
+    let claim = UpdateClaim {
+        version: VERSION.to_string(),
+        platform_key: "linux-x86_64".to_string(),
+        size: bytes.len() as u64,
+        sha256: Sha256::digest(&bytes).into(),
+    };
     let public_bytes: [u8; 32] = base64::engine::general_purpose::STANDARD
         .decode(&public)
         .unwrap()
         .try_into()
         .unwrap();
     assert_eq!(
-        verify_artifact(digest, &linux.sha256, &linux.signature, &public_bytes),
+        verify_artifact(&claim, &linux.sha256, &linux.signature, &public_bytes),
         Ok(())
+    );
+    assert_eq!(linux.size, claim.size);
+    let replayed = UpdateClaim {
+        version: "99.0.0".to_string(),
+        ..claim.clone()
+    };
+    assert_eq!(
+        verify_artifact(&replayed, &linux.sha256, &linux.signature, &public_bytes),
+        Err(vaio_platform::update::verify::VerifyError::BadSignature)
     );
 }
 

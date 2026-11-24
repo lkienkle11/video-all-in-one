@@ -165,6 +165,7 @@ pub fn error_key(error: &ExportCommandError) -> Text {
         ExportCommandError::Plan(PlanError::InvalidStem) => Text::ExportErrorStem,
         ExportCommandError::Plan(PlanError::NotAbsolute(_)) => Text::ExportErrorFolder,
         ExportCommandError::Plan(PlanError::OutputEqualsSource) => Text::ExportErrorOverwrite,
+        ExportCommandError::Plan(PlanError::UnsafePath) => Text::ExportErrorUnsafePath,
         ExportCommandError::Plan(_) => Text::ExportErrorSegments,
         ExportCommandError::OutputNotDirectory(_) => Text::ExportErrorFolderIsFile,
         ExportCommandError::OutputCreate(_) => Text::ExportErrorFolderCreate,

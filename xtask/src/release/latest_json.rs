@@ -7,7 +7,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, File};
 use std::io::Read;
 use std::path::Path;
-use vaio_core::update::parse_manifest;
+use vaio_core::update::{parse_manifest, UpdateClaim};
 use vaio_platform::update::verify::verify_artifact;
 
 /// The platform keys of the update artifacts and the file extension each one ships with.
@@ -78,7 +78,10 @@ pub fn build_manifest(
     let mut assets = BTreeMap::new();
     for (platform, name) in &artifacts {
         let url = format!("{base}{name}");
-        assets.insert(platform.clone(), asset(assets_dir, name, &url, public_key)?);
+        assets.insert(
+            platform.clone(),
+            asset(assets_dir, name, (platform, version), &url, public_key)?,
+        );
     }
     let value = serde_json::json!({
         "schema": 1,
@@ -156,10 +159,11 @@ pub(crate) fn match_artifact(name: &str) -> Option<(&'static str, &str)> {
 }
 
 /// The manifest entry of one artifact: size, SHA-256 and the content of its `.sig` file.
-/// The signature must verify over the digest with `public_key`.
+/// The signature must verify over the claim (version, platform, size, digest) with `public_key`.
 fn asset(
     assets_dir: &Path,
     name: &str,
+    (platform, version): (&str, &str),
     url: &str,
     public_key: &[u8; 32],
 ) -> Result<serde_json::Value> {
@@ -185,7 +189,13 @@ fn asset(
             bytes.len()
         );
     }
-    verify_artifact(digest, &sha256, signature, public_key)
+    let claim = UpdateClaim {
+        version: version.to_string(),
+        platform_key: platform.to_string(),
+        size,
+        sha256: digest,
+    };
+    verify_artifact(&claim, &sha256, signature, public_key)
         .map_err(|error| anyhow!("artifact {name} failed signature check: {error}"))?;
     Ok(serde_json::json!({
         "url": url,

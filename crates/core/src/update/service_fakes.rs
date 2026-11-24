@@ -7,7 +7,7 @@ use std::rc::Rc;
 use base64::Engine;
 
 use crate::ports::{ArtifactVerifier, UpdateBackend};
-use crate::update::{Asset, StagedFile, UpdateError, VerifyError};
+use crate::update::{Asset, StagedFile, UpdateClaim, UpdateError, VerifyError};
 
 pub(super) const ASSET_SIZE: u64 = 1024;
 
@@ -22,6 +22,7 @@ pub(super) struct Fake {
     pub(super) downloads: Cell<u32>,
     pub(super) installs: Cell<u32>,
     pub(super) verifies: Cell<u32>,
+    pub(super) claims: RefCell<Vec<UpdateClaim>>,
 }
 
 impl Fake {
@@ -36,6 +37,7 @@ impl Fake {
             downloads: Cell::new(0),
             installs: Cell::new(0),
             verifies: Cell::new(0),
+            claims: RefCell::new(Vec::new()),
         })
     }
 }
@@ -70,12 +72,13 @@ impl UpdateBackend for Backend {
 impl ArtifactVerifier for Verifier {
     fn verify(
         &self,
-        _digest: [u8; 32],
+        claim: &UpdateClaim,
         _expected_sha256_hex: &str,
         _signature_b64: &str,
         _public_key: &[u8; 32],
     ) -> Result<(), VerifyError> {
         self.0.verifies.set(self.0.verifies.get() + 1);
+        self.0.claims.borrow_mut().push(claim.clone());
         self.0.verify.get()
     }
 }

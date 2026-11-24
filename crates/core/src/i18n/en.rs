@@ -102,6 +102,9 @@ pub fn text(text: Text) -> &'static str {
         Text::ExportErrorFolderIsFile => "The output folder is an existing file.",
         Text::ExportErrorFolderCreate => "Couldn’t create the output folder.",
         Text::ExportErrorOverwrite => "The output would overwrite the source video.",
+        Text::ExportErrorUnsafePath => {
+            "The video path or output folder contains a control character, such as a line break."
+        }
         Text::ExportErrorSubmit => "Couldn’t add the export to the queue. Try again.",
         Text::ProcessAllButton => "Process all",
         Text::ProcessAllQueued => "{0} exports queued.",

@@ -5,7 +5,8 @@ use std::rc::Rc;
 use semver::Version;
 
 use crate::update::{
-    Asset, AvailableUpdate, ManifestError, UpdateError, UpdateService, UpdateState, VerifyError,
+    Asset, AvailableUpdate, ManifestError, UpdateClaim, UpdateError, UpdateService, UpdateState,
+    VerifyError,
 };
 
 use super::service_fakes::{manifest, signature, staged, Backend, Fake, Verifier, ASSET_SIZE};
@@ -259,4 +260,20 @@ fn check_does_nothing_while_downloading() {
         }
     );
     assert_eq!(fake.fetches.get(), 1);
+}
+
+#[test]
+fn download_hands_the_verifier_a_claim_with_version_platform_size_and_digest() {
+    let fake = Fake::new(manifest(1, "0.1.1", Some(PLATFORM)));
+    let mut service = available_service(&fake);
+    service.download();
+    assert_eq!(
+        fake.claims.borrow().as_slice(),
+        &[UpdateClaim {
+            version: "0.1.1".to_string(),
+            platform_key: PLATFORM.to_string(),
+            size: ASSET_SIZE,
+            sha256: [0xaa; 32],
+        }]
+    );
 }

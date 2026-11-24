@@ -3,7 +3,7 @@
 use std::fmt;
 
 use super::manifest::ManifestError;
-use super::verify_error::VerifyError;
+use super::verify::VerifyError;
 
 /// A failed update step.
 #[derive(Debug, Clone, PartialEq)]

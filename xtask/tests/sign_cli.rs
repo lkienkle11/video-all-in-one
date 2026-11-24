@@ -4,11 +4,13 @@ use std::fs;
 use std::path::PathBuf;
 use std::process::{Command, Output};
 use std::sync::atomic::{AtomicUsize, Ordering};
+use vaio_core::update::UpdateClaim;
 use vaio_platform::update::verify::verify_artifact;
 
 static NEXT: AtomicUsize = AtomicUsize::new(0);
 const SEED: [u8; 32] = [21; 32];
 const KEY_ENV: &str = "UPDATE_SIGNING_KEY";
+const NAME: &str = "video-all-in-one-0.2.0-linux-x86_64.deb";
 
 struct TempDir(PathBuf);
 
@@ -44,7 +46,7 @@ fn xtask(args: &[&str], key: Option<&str>) -> Output {
 }
 
 fn artifact(dir: &TempDir) -> PathBuf {
-    let path = dir.0.join("artifact.bin");
+    let path = dir.0.join(NAME);
     fs::write(&path, b"update bytes").unwrap();
     path
 }
@@ -102,7 +104,10 @@ fn sign_without_the_environment_variable_fails() {
     let out = xtask(&["sign", "--file", file.to_str().unwrap()], None);
     assert!(!out.status.success());
     assert!(out.stdout.is_empty());
-    assert!(!dir.0.join("artifact.bin.sig").exists());
+    assert!(!dir
+        .0
+        .join("video-all-in-one-0.2.0-linux-x86_64.deb.sig")
+        .exists());
 }
 
 #[test]
@@ -138,6 +143,12 @@ fn keygen_then_sign_then_verify_end_to_end() {
         .lines()
         .find_map(|l| l.strip_prefix("signature="))
         .unwrap();
-    let digest: [u8; 32] = Sha256::digest(fs::read(&file).unwrap()).into();
-    assert_eq!(verify_artifact(digest, sha, sig, &public_key), Ok(()));
+    let bytes = fs::read(&file).unwrap();
+    let claim = UpdateClaim {
+        version: "0.2.0".to_string(),
+        platform_key: "linux-x86_64".to_string(),
+        size: bytes.len() as u64,
+        sha256: Sha256::digest(&bytes).into(),
+    };
+    assert_eq!(verify_artifact(&claim, sha, sig, &public_key), Ok(()));
 }

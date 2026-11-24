@@ -12,7 +12,10 @@ use std::{
     future::Future,
     path::PathBuf,
     pin::Pin,
-    sync::{Arc, Mutex},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Mutex,
+    },
     time::Duration,
 };
 use tokio::sync::{mpsc, oneshot};
@@ -22,7 +25,7 @@ use tokio_util::sync::CancellationToken;
 pub const POISON: &str = "poison";
 
 #[derive(Default)]
-pub struct MemoryStore(pub Mutex<BTreeMap<i64, StoredJob>>);
+pub struct MemoryStore(pub Mutex<BTreeMap<i64, StoredJob>>, pub AtomicBool);
 
 impl JobStore for MemoryStore {
     fn insert(&self, kind: JobKind, payload: &str) -> Result<JobId, StoreError> {
@@ -60,6 +63,13 @@ impl JobStore for MemoryStore {
         Ok(self.0.lock().unwrap().values().cloned().collect())
     }
     fn transition(&self, id: JobId, to: JobState, error: Option<&str>) -> Result<(), StoreError> {
+        let closing = matches!(
+            to,
+            JobState::Succeeded | JobState::Failed | JobState::Cancelled
+        );
+        if closing && self.1.load(Ordering::SeqCst) {
+            return Err(StoreError::Backend("the closing write failed".into()));
+        }
         self.0
             .lock()
             .unwrap()

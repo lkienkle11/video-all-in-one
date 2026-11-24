@@ -72,6 +72,8 @@ pub enum PlanError {
     SegmentNotIncreasing,
     /// An output would be written over the source video.
     OutputEqualsSource,
+    /// The source or the output folder contains a control character, such as a newline.
+    UnsafePath,
 }
 
 impl fmt::Display for PlanError {
@@ -90,6 +92,9 @@ impl fmt::Display for PlanError {
             }
             PlanError::OutputEqualsSource => {
                 f.write_str("an output would overwrite the source video")
+            }
+            PlanError::UnsafePath => {
+                f.write_str("a path contains a control character, such as a newline")
             }
         }
     }

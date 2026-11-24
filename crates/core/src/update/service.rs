@@ -9,6 +9,7 @@ use super::decide::{decide, UpdateDecision};
 use super::error::UpdateError;
 use super::manifest::parse_manifest;
 use super::state::UpdateState;
+use super::verify::UpdateClaim;
 
 /// Drives one update from check to install. A disabled service (development channel)
 /// never touches the backend or the verifier.
@@ -105,8 +106,8 @@ impl<B: UpdateBackend, V: ArtifactVerifier> UpdateService<B, V> {
         if !self.enabled {
             return;
         }
-        let asset = match &self.state {
-            UpdateState::Available(update) => update.asset.clone(),
+        let (asset, version) = match &self.state {
+            UpdateState::Available(update) => (update.asset.clone(), update.version.to_string()),
             _ => return,
         };
         self.state = UpdateState::Downloading {
@@ -129,15 +130,23 @@ impl<B: UpdateBackend, V: ArtifactVerifier> UpdateService<B, V> {
                     actual: staged.size,
                 })
             }
-            Ok(staged) => match self.verifier.verify(
-                staged.sha256,
-                &asset.sha256,
-                &asset.signature,
-                &self.public_key,
-            ) {
-                Ok(()) => UpdateState::Ready(staged),
-                Err(error) => UpdateState::Failed(UpdateError::Verify(error)),
-            },
+            Ok(staged) => {
+                let claim = UpdateClaim {
+                    version,
+                    platform_key: self.platform_key.clone(),
+                    size: asset.size,
+                    sha256: staged.sha256,
+                };
+                match self.verifier.verify(
+                    &claim,
+                    &asset.sha256,
+                    &asset.signature,
+                    &self.public_key,
+                ) {
+                    Ok(()) => UpdateState::Ready(staged),
+                    Err(error) => UpdateState::Failed(UpdateError::Verify(error)),
+                }
+            }
         };
     }
 

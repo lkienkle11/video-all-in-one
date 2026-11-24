@@ -1,5 +1,7 @@
 use super::job_scheduler::NewJob;
 use super::job_scheduler_fixtures::*;
+use std::sync::atomic::Ordering;
+
 use crate::{
     domain::job::{JobKind, JobState},
     ports::{events::JobEvent, JobStore},
@@ -312,4 +314,28 @@ async fn submit_many_is_all_or_nothing() {
     assert_eq!(run.job.id(), ids[1]);
     run.finish.send(Outcome::Success).ok().unwrap();
     h.state(ids[1], JobState::Succeeded).await;
+}
+
+#[tokio::test]
+async fn failed_closing_write_frees_the_job_and_reports_failure() {
+    let mut h = Harness::new();
+    let id = h.scheduler.submit(work(JobKind::Cut)).unwrap();
+    let run = h.started().await;
+    h.store.1.store(true, Ordering::SeqCst);
+    run.finish.send(Outcome::Success).ok().unwrap();
+    assert!(h.failed(id).await.contains("closing write failed"));
+    // The stored state stays Running (only recover() repairs it), but the job is no longer
+    // active: no event claims a state change, and cancelling it is harmless.
+    assert_eq!(h.store.get(id).unwrap().job.state(), JobState::Running);
+    while let Ok(event) = h.events.try_recv() {
+        assert_ne!(event, JobEvent::StateChanged(id, JobState::Succeeded));
+    }
+    h.scheduler.cancel(id);
+    assert!(h.failed(id).await.contains("startup recovery"));
+    h.store.1.store(false, Ordering::SeqCst);
+    let next = h.scheduler.submit(work(JobKind::Cut)).unwrap();
+    let run = h.started().await;
+    assert_eq!(run.job.id(), next);
+    run.finish.send(Outcome::Success).ok().unwrap();
+    h.state(next, JobState::Succeeded).await;
 }
