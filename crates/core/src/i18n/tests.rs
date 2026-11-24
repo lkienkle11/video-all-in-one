@@ -197,6 +197,10 @@ fn index(t: Text) -> usize {
         Text::ExportErrorFolderCreate => 87,
         Text::ExportErrorOverwrite => 88,
         Text::ExportErrorSubmit => 89,
+        Text::ProcessAllButton => 90,
+        Text::ProcessAllQueued => 91,
+        Text::ProcessAllSkipped => 92,
+        Text::ProcessAllFailed => 93,
     }
 }
 
@@ -210,7 +214,7 @@ fn text_all_lists_every_variant_in_enum_order() {
         );
     }
     // The last variant has the highest index.
-    let highest = index(Text::ExportErrorSubmit);
+    let highest = index(Text::ProcessAllFailed);
     assert_eq!(
         Text::ALL.len(),
         highest + 1,

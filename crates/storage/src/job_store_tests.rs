@@ -252,3 +252,42 @@ fn unknown_stored_state_is_a_backend_error() {
 
     assert!(matches!(err, StoreError::Backend(ref message) if message.contains("bogus")));
 }
+
+#[test]
+fn submit_many_is_all_or_nothing() {
+    let dir = TempDir::new("insert-many");
+    let store = store_at(&dir.database(), clock_1000);
+    let before = store.insert(JobKind::Cut, "before").expect("insert");
+
+    let ids = store
+        .insert_many(&[(JobKind::Merge, "a"), (JobKind::Cut, "b")])
+        .expect("insert both");
+    assert_eq!(ids.len(), 2);
+    assert!(before.0 < ids[0].0 && ids[0].0 < ids[1].0);
+    assert_eq!(store.get(ids[0]).expect("get a").payload, "a");
+    assert_eq!(store.get(ids[1]).expect("get b").job.kind(), JobKind::Cut);
+    assert_eq!(store.insert_many(&[]).expect("empty batch"), vec![]);
+
+    // A constraint that refuses the third row, as a full disk or a lock would mid-batch.
+    Connection::open(dir.database())
+        .expect("open a second connection")
+        .execute_batch(
+            "CREATE TRIGGER refuse_poison BEFORE INSERT ON jobs WHEN NEW.payload = 'poison' \
+             BEGIN SELECT RAISE(ABORT, 'poison refused'); END;",
+        )
+        .expect("create the trigger");
+    let rows_before = store.list().expect("list").len();
+
+    let error = store
+        .insert_many(&[
+            (JobKind::Cut, "x"),
+            (JobKind::Cut, "y"),
+            (JobKind::Cut, "poison"),
+        ])
+        .expect_err("the third row is refused");
+
+    assert!(error.to_string().contains("poison refused"));
+    assert_eq!(store.list().expect("list").len(), rows_before);
+    let next = store.insert(JobKind::Cut, "after").expect("insert");
+    assert_eq!(next.0, ids[1].0 + 1, "a rolled-back batch uses no ids");
+}

@@ -103,5 +103,9 @@ pub fn text(text: Text) -> &'static str {
         Text::ExportErrorFolderCreate => "Couldn’t create the output folder.",
         Text::ExportErrorOverwrite => "The output would overwrite the source video.",
         Text::ExportErrorSubmit => "Couldn’t add the export to the queue. Try again.",
+        Text::ProcessAllButton => "Process all",
+        Text::ProcessAllQueued => "{0} exports queued.",
+        Text::ProcessAllSkipped => "{0} without segments skipped.",
+        Text::ProcessAllFailed => "Nothing was queued. “{0}” can’t be exported: {1}",
     }
 }

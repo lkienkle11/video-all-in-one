@@ -1,12 +1,15 @@
 //! Workspace data observed by the desktop views.
+use crate::commands::batch::{valid_rows, BatchInput};
 use gpui_kit::{Context, Task};
 use std::{
+    collections::HashMap,
     path::{Path, PathBuf},
     sync::Arc,
 };
 use tokio::{runtime::Handle, sync::mpsc::UnboundedReceiver};
 use vaio_core::{
     domain::{
+        export::{CutMode, ExportMode},
         job::{JobId, JobState},
         media::MediaInfo,
     },
@@ -25,6 +28,31 @@ impl Source {
     }
     pub fn info(&self) -> &MediaInfo {
         &self.info
+    }
+}
+
+/// What the user has typed and chosen for one source: segment rows as text and the export options.
+/// A source the user has not configured has no draft.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SourceDraft {
+    /// Start and end text of each row, in order; invalid rows are kept as typed.
+    pub rows: Vec<(String, String)>,
+    pub cut: CutMode,
+    pub mode: ExportMode,
+    /// Empty means the default output folder of the source.
+    pub folder: String,
+    /// Empty means the source's file name without its extension.
+    pub stem: String,
+}
+impl Default for SourceDraft {
+    fn default() -> Self {
+        Self {
+            rows: vec![],
+            cut: CutMode::Fast,
+            mode: ExportMode::Separate,
+            folder: String::new(),
+            stem: String::new(),
+        }
     }
 }
 
@@ -59,6 +87,7 @@ pub struct AppState {
     receiver: Option<UnboundedReceiver<JobEvent>>,
     event_task: Option<Task<()>>,
     scheduler: Option<Arc<JobScheduler>>,
+    drafts: HashMap<PathBuf, SourceDraft>,
 }
 impl AppState {
     pub fn new(
@@ -75,6 +104,7 @@ impl AppState {
             receiver: Some(receiver),
             event_task: None,
             scheduler: None,
+            drafts: HashMap::new(),
         }
     }
     pub fn runtime(&self) -> &Handle {
@@ -97,6 +127,33 @@ impl AppState {
     pub fn with_scheduler(mut self, scheduler: Arc<JobScheduler>) -> Self {
         self.scheduler = Some(scheduler);
         self
+    }
+    pub fn draft(&self, path: &Path) -> Option<&SourceDraft> {
+        self.drafts.get(path)
+    }
+    /// Changes the draft of `path`, creating a default one first. Views that show the draft
+    /// notify themselves; this does not notify observers of the state.
+    pub fn edit_draft(&mut self, path: &Path, edit: impl FnOnce(&mut SourceDraft)) {
+        edit(self.drafts.entry(path.to_owned()).or_default());
+    }
+    /// Every source in list order with its draft, as the batch command takes them.
+    pub fn batch_inputs(&self) -> Vec<BatchInput> {
+        self.sources
+            .iter()
+            .map(|source| BatchInput {
+                path: source.path.clone(),
+                info: source.info.clone(),
+                draft: self.drafts.get(&source.path).cloned(),
+            })
+            .collect()
+    }
+    /// Whether Process All has at least one source to queue.
+    pub fn batch_ready(&self) -> bool {
+        self.sources.iter().any(|source| {
+            self.drafts
+                .get(&source.path)
+                .is_some_and(|draft| !valid_rows(draft, source.info.duration).is_empty())
+        })
     }
     pub fn scheduler(&self) -> Option<&Arc<JobScheduler>> {
         self.scheduler.as_ref()

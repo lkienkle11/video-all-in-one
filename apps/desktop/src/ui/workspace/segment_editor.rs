@@ -1,5 +1,9 @@
 //! Typed start and end rows for the segments to export, validated as the user types.
-use crate::{state::AppState, ui::settings::SettingsView};
+use crate::{
+    commands::segment_rows::{check_row, RowError},
+    state::AppState,
+    ui::settings::SettingsView,
+};
 use gpui_kit::TestSupportExt;
 use gpui_kit::{
     component::{
@@ -16,27 +20,6 @@ use vaio_core::{
     domain::{segment::Segment, time::TimeMs},
     i18n::{tr, tr_fmt, Language, Text},
 };
-
-/// Why a row cannot be exported.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum RowError {
-    Invalid,
-    NotIncreasing,
-    BeyondDuration,
-}
-
-fn check_row(start: &str, end: &str, duration: TimeMs) -> Result<Segment, RowError> {
-    let (Ok(start), Ok(end)) = (TimeMs::parse(start), TimeMs::parse(end)) else {
-        return Err(RowError::Invalid);
-    };
-    if start >= end {
-        return Err(RowError::NotIncreasing);
-    }
-    if end > duration {
-        return Err(RowError::BeyondDuration);
-    }
-    Ok(Segment::new(start, end))
-}
 
 fn error_text(error: RowError, duration: TimeMs, language: Language) -> String {
     match error {
@@ -72,12 +55,20 @@ impl SegmentEditor {
     ) -> Self {
         let source = selected_path(&state, cx);
         let subscriptions = vec![
-            cx.observe_in(&state, window, |this, state, _, cx| {
-                // Rows belong to one source; another source starts with an empty list.
+            cx.observe_in(&state, window, |this, state, window, cx| {
+                // Rows belong to one source; another source shows its own draft, or no rows.
                 let selected = selected_path(&state, cx);
                 if selected != this.source {
                     this.source = selected;
                     this.rows.clear();
+                    let saved = this
+                        .source
+                        .as_deref()
+                        .and_then(|path| state.read(cx).draft(path).map(|d| d.rows.clone()))
+                        .unwrap_or_default();
+                    for (start, end) in saved {
+                        this.push_row(start, end, window, cx);
+                    }
                 }
                 cx.notify();
             }),
@@ -126,6 +117,19 @@ impl SegmentEditor {
             .map(|text| text.to_string())
             .unwrap_or_else(|| TimeMs(0).to_string());
         let end = duration.to_string();
+        self.push_row(start, end, window, cx);
+        self.save_rows(cx);
+        cx.notify();
+    }
+
+    /// Appends a row holding `start` and `end` as typed.
+    fn push_row(
+        &mut self,
+        start: String,
+        end: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let id = self.next_id;
         self.next_id += 1;
         let start = cx.new(|cx| InputState::new(window, cx).default_value(start));
@@ -133,8 +137,9 @@ impl SegmentEditor {
         let subscriptions = [&start, &end]
             .into_iter()
             .map(|input| {
-                cx.subscribe_in(input, window, |_, _, event: &InputEvent, _, cx| {
+                cx.subscribe_in(input, window, |this, _, event: &InputEvent, _, cx| {
                     if matches!(event, InputEvent::Change) {
+                        this.save_rows(cx);
                         cx.notify();
                     }
                 })
@@ -146,11 +151,31 @@ impl SegmentEditor {
             end,
             _subscriptions: subscriptions,
         });
-        cx.notify();
+    }
+
+    /// Keeps the typed rows as the draft of the selected source, for Process All.
+    fn save_rows(&self, cx: &mut Context<Self>) {
+        let Some(path) = self.source.clone() else {
+            return;
+        };
+        let rows: Vec<_> = self
+            .rows
+            .iter()
+            .map(|row| {
+                (
+                    row.start.read(cx).value().to_string(),
+                    row.end.read(cx).value().to_string(),
+                )
+            })
+            .collect();
+        self.state.update(cx, |state, _| {
+            state.edit_draft(&path, |draft| draft.rows = rows)
+        });
     }
 
     fn remove_row(&mut self, id: u64, cx: &mut Context<Self>) {
         self.rows.retain(|row| row.id != id);
+        self.save_rows(cx);
         cx.notify();
     }
 }

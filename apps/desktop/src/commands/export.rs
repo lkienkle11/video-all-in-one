@@ -10,6 +10,7 @@ use vaio_core::{
         media::MediaInfo,
         segment::{normalize, Segment, SegmentError},
     },
+    i18n::Text,
     services::{
         job_scheduler::{JobScheduler, NewJob},
         media_planner::{plan_export, ExportRequest},
@@ -74,15 +75,29 @@ impl fmt::Display for ExportCommandError {
 }
 impl std::error::Error for ExportCommandError {}
 
-/// Queues one export job. This does file-system and database work: call it from a
-/// blocking worker, never from a UI handler.
-pub fn submit_export(
-    scheduler: &JobScheduler,
+/// An export that passed validation and planning but has not been written or queued yet.
+pub struct PlannedExport {
+    job: NewJob,
+    out_dir: PathBuf,
+}
+impl PlannedExport {
+    pub fn into_job(self) -> NewJob {
+        self.job
+    }
+    /// Creates the output folder; call it only once the whole request is known to be valid.
+    pub fn create_out_dir(&self) -> Result<(), ExportCommandError> {
+        std::fs::create_dir_all(&self.out_dir)
+            .map_err(|error| ExportCommandError::OutputCreate(error.to_string()))
+    }
+}
+
+/// Validates and plans one export and builds its job. It writes nothing and queues nothing.
+pub fn plan_export_job(
     source: &Path,
     info: &MediaInfo,
     rows: &[Segment],
     options: &ExportOptions,
-) -> Result<JobId, ExportCommandError> {
+) -> Result<PlannedExport, ExportCommandError> {
     let segments = normalize(rows, info.duration).map_err(ExportCommandError::Segments)?;
     plan_export(
         &ExportRequest {
@@ -102,8 +117,6 @@ pub fn submit_export(
             options.out_dir.clone(),
         ));
     }
-    std::fs::create_dir_all(&options.out_dir)
-        .map_err(|error| ExportCommandError::OutputCreate(error.to_string()))?;
     let payload = ExportJobPayload {
         source: source.to_path_buf(),
         segments: segments
@@ -121,9 +134,42 @@ pub fn submit_export(
         ExportMode::Merged => JobKind::Merge,
         ExportMode::Separate => JobKind::Cut,
     };
+    Ok(PlannedExport {
+        job: NewJob { kind, payload },
+        out_dir: options.out_dir.clone(),
+    })
+}
+
+/// Queues one export job. This does file-system and database work: call it from a
+/// blocking worker, never from a UI handler.
+pub fn submit_export(
+    scheduler: &JobScheduler,
+    source: &Path,
+    info: &MediaInfo,
+    rows: &[Segment],
+    options: &ExportOptions,
+) -> Result<JobId, ExportCommandError> {
+    let planned = plan_export_job(source, info, rows, options)?;
+    planned.create_out_dir()?;
     scheduler
-        .submit(NewJob { kind, payload })
+        .submit(planned.into_job())
         .map_err(|error| ExportCommandError::Submit(error.to_string()))
+}
+
+/// The user-facing text that explains `error`.
+pub fn error_key(error: &ExportCommandError) -> Text {
+    match error {
+        ExportCommandError::NoSource => Text::ExportErrorNoSource,
+        ExportCommandError::SchedulerUnavailable => Text::ExportErrorUnavailable,
+        ExportCommandError::Segments(_) => Text::ExportErrorSegments,
+        ExportCommandError::Plan(PlanError::InvalidStem) => Text::ExportErrorStem,
+        ExportCommandError::Plan(PlanError::NotAbsolute(_)) => Text::ExportErrorFolder,
+        ExportCommandError::Plan(PlanError::OutputEqualsSource) => Text::ExportErrorOverwrite,
+        ExportCommandError::Plan(_) => Text::ExportErrorSegments,
+        ExportCommandError::OutputNotDirectory(_) => Text::ExportErrorFolderIsFile,
+        ExportCommandError::OutputCreate(_) => Text::ExportErrorFolderCreate,
+        ExportCommandError::Payload(_) | ExportCommandError::Submit(_) => Text::ExportErrorSubmit,
+    }
 }
 
 /// A new folder next to the source, named `<stem>-export`, numbered when taken.

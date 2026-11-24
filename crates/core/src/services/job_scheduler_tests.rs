@@ -1,7 +1,8 @@
+use super::job_scheduler::NewJob;
 use super::job_scheduler_fixtures::*;
 use crate::{
     domain::job::{JobKind, JobState},
-    ports::JobStore,
+    ports::{events::JobEvent, JobStore},
 };
 
 #[tokio::test]
@@ -263,4 +264,52 @@ async fn duplicate_submission_of_identical_job_creates_two_independent_jobs() {
     second.finish.send(Outcome::Success).ok().unwrap();
     h.state(succeeded, JobState::Succeeded).await;
     assert_eq!(h.store.get(failed).unwrap().job.state(), JobState::Failed);
+}
+
+#[tokio::test]
+async fn submit_many_is_all_or_nothing() {
+    let mut h = Harness::new();
+    let job = |kind, payload: &str| NewJob {
+        kind,
+        payload: payload.into(),
+    };
+    let error = h
+        .scheduler
+        .submit_many(vec![
+            job(JobKind::Cut, "first"),
+            job(JobKind::Cut, "second"),
+            job(JobKind::Cut, POISON),
+        ])
+        .unwrap_err();
+    assert!(error.to_string().contains("poisoned"));
+    assert!(h.store.list().unwrap().is_empty());
+    assert!(h.events.try_recv().is_err());
+    assert!(h.starts.try_recv().is_err());
+    assert_eq!(h.scheduler.submit_many(vec![]).unwrap(), vec![]);
+    assert!(h.events.try_recv().is_err());
+
+    let ids = h
+        .scheduler
+        .submit_many(vec![job(JobKind::Merge, "a"), job(JobKind::Cut, "b")])
+        .unwrap();
+    assert_eq!(ids.len(), 2);
+    assert!(ids[0].0 < ids[1].0);
+    let stored: Vec<_> = h.store.list().unwrap();
+    assert_eq!(stored.len(), 2);
+    assert_eq!(stored[0].payload, "a");
+    assert_eq!(stored[1].payload, "b");
+    for id in &ids {
+        assert_eq!(
+            bounded(h.events.recv()).await.unwrap(),
+            JobEvent::StateChanged(*id, JobState::Queued)
+        );
+    }
+    let run = h.started().await;
+    assert_eq!(run.job.id(), ids[0]);
+    run.finish.send(Outcome::Success).ok().unwrap();
+    h.state(ids[0], JobState::Succeeded).await;
+    let run = h.started().await;
+    assert_eq!(run.job.id(), ids[1]);
+    run.finish.send(Outcome::Success).ok().unwrap();
+    h.state(ids[1], JobState::Succeeded).await;
 }

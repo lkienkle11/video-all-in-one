@@ -60,6 +60,39 @@ impl JobStore for SqliteJobStore {
         Ok(JobId(conn.last_insert_rowid()))
     }
 
+    fn insert_many(&self, items: &[(JobKind, &str)]) -> Result<Vec<JobId>, StoreError> {
+        if items.is_empty() {
+            return Ok(vec![]);
+        }
+        let mut conn = self.lock()?;
+        let tx = conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(backend)?;
+        let now = (self.now_ms)();
+        let mut ids = Vec::with_capacity(items.len());
+        {
+            let mut stmt = tx
+                .prepare(
+                    "INSERT INTO jobs (kind, state, error, payload, created_at_ms, updated_at_ms) \
+                     VALUES (?1, ?2, NULL, ?3, ?4, ?4)",
+                )
+                .map_err(backend)?;
+            for (kind, payload) in items {
+                stmt.execute(params![
+                    kind_text(*kind),
+                    state_text(JobState::Queued),
+                    payload,
+                    now
+                ])
+                .map_err(backend)?;
+                ids.push(JobId(tx.last_insert_rowid()));
+            }
+        }
+        // Dropping `tx` on an early return rolls every row back.
+        tx.commit().map_err(backend)?;
+        Ok(ids)
+    }
+
     fn get(&self, id: JobId) -> Result<StoredJob, StoreError> {
         let conn = self.lock()?;
         load(&conn, id)

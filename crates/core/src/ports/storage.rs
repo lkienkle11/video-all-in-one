@@ -43,6 +43,16 @@ pub trait JobStore: Send + Sync {
     /// Stores a new queued job and returns its identifier.
     fn insert(&self, kind: JobKind, payload: &str) -> Result<JobId, StoreError>;
 
+    /// Stores several new queued jobs in input order, all or none, and returns their identifiers
+    /// in the same order. When any item fails nothing is stored. The default refuses, so a store
+    /// that cannot make this atomic never pretends to.
+    fn insert_many(&self, items: &[(JobKind, &str)]) -> Result<Vec<JobId>, StoreError> {
+        let _ = items;
+        Err(StoreError::Backend(
+            "this job store cannot insert several jobs at once".to_string(),
+        ))
+    }
+
     /// Returns one job, or `NotFound`.
     fn get(&self, id: JobId) -> Result<StoredJob, StoreError>;
 

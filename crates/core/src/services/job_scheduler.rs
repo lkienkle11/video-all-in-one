@@ -126,6 +126,35 @@ impl JobScheduler {
         Ok(id)
     }
 
+    /// Persists every job in one store call, all or none, then makes them eligible in input
+    /// order, emitting one `Queued` event each. An empty list stores and emits nothing.
+    ///
+    /// Like `submit`, this runs on the caller's thread: call it from a blocking worker.
+    pub fn submit_many(&self, jobs: Vec<NewJob>) -> Result<Vec<JobId>, StoreError> {
+        if jobs.is_empty() {
+            return Ok(vec![]);
+        }
+        let queue = &self.inner;
+        let mut active = queue.lock()?;
+        let items: Vec<_> = jobs
+            .iter()
+            .map(|job| (job.kind, job.payload.as_str()))
+            .collect();
+        let ids = queue.store.insert_many(&items)?;
+        if ids.len() != jobs.len() {
+            return Err(StoreError::Backend(
+                "the job store returned the wrong number of identifiers".into(),
+            ));
+        }
+        for (id, job) in ids.iter().zip(&jobs) {
+            queue
+                .events
+                .send(JobEvent::StateChanged(*id, JobState::Queued));
+            queue.schedule(Job::new(*id, job.kind), &mut active);
+        }
+        Ok(ids)
+    }
+
     /// Requests cancellation; Running remains Running until its runner returns.
     /// Rejected commands and storage failures produce `JobEvent::Failed` without a state event.
     pub fn cancel(&self, id: JobId) {

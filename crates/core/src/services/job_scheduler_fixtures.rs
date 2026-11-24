@@ -18,6 +18,9 @@ use std::{
 use tokio::sync::{mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
 
+/// A payload the fake store refuses, standing in for a constraint failure mid-batch.
+pub const POISON: &str = "poison";
+
 #[derive(Default)]
 pub struct MemoryStore(pub Mutex<BTreeMap<i64, StoredJob>>);
 
@@ -35,6 +38,15 @@ impl JobStore for MemoryStore {
             },
         );
         Ok(id)
+    }
+    fn insert_many(&self, items: &[(JobKind, &str)]) -> Result<Vec<JobId>, StoreError> {
+        if items.iter().any(|(_, payload)| *payload == POISON) {
+            return Err(StoreError::Backend("the batch is poisoned".into()));
+        }
+        items
+            .iter()
+            .map(|(kind, payload)| self.insert(*kind, payload))
+            .collect()
     }
     fn get(&self, id: JobId) -> Result<StoredJob, StoreError> {
         self.0

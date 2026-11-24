@@ -122,11 +122,15 @@ pub enum Text {
     ExportErrorFolderCreate,
     ExportErrorOverwrite,
     ExportErrorSubmit,
+    ProcessAllButton,
+    ProcessAllQueued,
+    ProcessAllSkipped,
+    ProcessAllFailed,
 }
 
 impl Text {
     /// Every text key, in the same order as the enum.
-    pub const ALL: [Text; 90] = [
+    pub const ALL: [Text; 94] = [
         Text::AppTitle,
         Text::ChooseLanguageTitle,
         Text::ChooseLanguageBody,
@@ -217,6 +221,10 @@ impl Text {
         Text::ExportErrorFolderCreate,
         Text::ExportErrorOverwrite,
         Text::ExportErrorSubmit,
+        Text::ProcessAllButton,
+        Text::ProcessAllQueued,
+        Text::ProcessAllSkipped,
+        Text::ProcessAllFailed,
     ];
 }
 
