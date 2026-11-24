@@ -1,0 +1,24 @@
+[package]
+name = "vaio-media"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+vaio-core = { path = "../core" }
+serde_json.workspace = true
+serde.workspace = true
+tokio.workspace = true
+libmpv2.workspace = true
+tokio-util.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows-sys.workspace = true
+
+[[bin]]
+name = "vaio-test-helper"
+path = "tests/bin/helper.rs"
+test = false
+doc = false

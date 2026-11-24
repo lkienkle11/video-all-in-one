@@ -1,0 +1,200 @@
+# Checks every pull request on macOS (Apple Silicon and Intel), Windows and Ubuntu 22.04
+# (the oldest Ubuntu the app supports; the package bundles its own libmpv).
+# The jobs are independent: one failing OS does not cancel or hide the others.
+name: CI
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  # Faster CI builds: no incremental state to save and no debug info to write or link.
+  CARGO_INCREMENTAL: "0"
+  CARGO_PROFILE_DEV_DEBUG: "0"
+  # Overrides rust-toolchain.toml (channel "stable") so every run uses the same compiler.
+  RUSTUP_TOOLCHAIN: "1.99.1"
+  # macOS and Ubuntu: our own LGPL libmpv, built by build-libmpv.yml and published as assets of the
+  # release libmpv-1. LIBMPV_RECIPE must equal RECIPE_VERSION in xtask/src/libmpv/sources.rs.
+  # Replace each PENDING value with the SHA-256 the Build libmpv workflow prints for that archive.
+  LIBMPV_RECIPE: "1"
+  LIBMPV_URL_BASE: "https://github.com/${{ github.repository }}/releases/download/libmpv-1"
+  LIBMPV_SHA256_LINUX_X86_64: "b4ecd5b0ab384c10b2d591269d19d6a9032bab8dfb99a46be9b7dfbeaadab6cf"
+  LIBMPV_SHA256_MACOS_ARM64: "3fcd870e37c956372165f6dc3d3f92264a28610406a2840dcd611e52c8ebacfc"
+  LIBMPV_SHA256_MACOS_X86_64: "59f6bb2c161ca3a20066aa8c8a2cb327fe0984cd9357760e03ebf517f9ad3217"
+  # Windows only: libmpv for Windows from the LGPL build of zhongfly/mpv-winbuild.
+  MPV_WIN_URL: "https://github.com/zhongfly/mpv-winbuild/releases/download/2026-11-23-35efcf53d5/mpv-dev-lgpl-x86_64-20261123-git-35efcf53d5.7z"
+  MPV_WIN_SHA256: "029892b3c3951bbb738d05a338698d330e0682b767ff7c142a4da68da68c175a"
+
+jobs:
+  # Each OS runs two jobs side by side (lint and test), so a run takes as long as the slower one
+  # and not the sum of both. Every job must finish in under 10 minutes on a cold cache.
+  check:
+    name: ${{ matrix.task }} (${{ matrix.target }})
+    runs-on: ${{ fromJSON('{"macos-apple-silicon":"macos-15","macos-intel":"macos-15-intel","windows":"windows-2025","ubuntu-22.04":"ubuntu-22.04"}')[matrix.target] }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [macos-apple-silicon, macos-intel, windows, ubuntu-22.04]
+        task: [lint, test]
+        exclude:
+          # The lint result is the same on both Macs, and clippy on the Intel runner alone takes
+          # more than 10 minutes; Intel still runs the tests.
+          - target: macos-intel
+            task: lint
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install the pinned Rust toolchain
+        run: rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal --component rustfmt --component clippy --no-self-update
+
+      - name: Cache cargo downloads and build output
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target
+          key: cargo-ci-${{ matrix.task }}-${{ matrix.target }}-${{ env.RUSTUP_TOOLCHAIN }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            cargo-ci-${{ matrix.task }}-${{ matrix.target }}-${{ env.RUSTUP_TOOLCHAIN }}-
+
+      # macOS and Ubuntu: our own LGPL libmpv from the release libmpv-1 (built by
+      # build-libmpv.yml). The archive is checked against the pinned SHA-256 before it is unpacked.
+      # RUSTFLAGS replaces the Homebrew entries of .cargo/config.toml, which stay for local work.
+      - name: Install the pinned libmpv (macOS and Ubuntu)
+        if: runner.os != 'Windows'
+        run: |
+          set -eu
+          case "$RUNNER_OS-$RUNNER_ARCH" in
+            Linux-X64) platform=linux-x86_64; want="$LIBMPV_SHA256_LINUX_X86_64" ;;
+            macOS-ARM64) platform=macos-arm64; want="$LIBMPV_SHA256_MACOS_ARM64" ;;
+            macOS-X64) platform=macos-x86_64; want="$LIBMPV_SHA256_MACOS_X86_64" ;;
+            *) echo "::error::there is no libmpv build for $RUNNER_OS $RUNNER_ARCH"; exit 1 ;;
+          esac
+          case "$want" in
+            PENDING*)
+              echo "::error::the SHA-256 of the libmpv archive for $platform is not pinned yet. Run the Build libmpv workflow, then copy the SHA-256 it prints into LIBMPV_SHA256_* at the top of ci.yml and release.yml (docs/RELEASING.md, Our own libmpv)."
+              exit 1 ;;
+          esac
+          archive="libmpv-${LIBMPV_RECIPE}-${platform}.tar.gz"
+          file="$RUNNER_TEMP/$archive"
+          curl --fail --location --silent --show-error --proto '=https' --tlsv1.2 --retry 3 \
+            --output "$file" "$LIBMPV_URL_BASE/$archive"
+          if command -v sha256sum > /dev/null; then got=$(sha256sum "$file" | cut -d' ' -f1); else got=$(shasum -a 256 "$file" | cut -d' ' -f1); fi
+          if [ "$got" != "$want" ]; then
+            echo "::error::$archive has SHA-256 $got, expected $want"
+            exit 1
+          fi
+          dir="$RUNNER_TEMP/libmpv"
+          mkdir -p "$dir"
+          tar -xzf "$file" -C "$dir"
+          test -d "$dir/lib"
+          flags="-L native=$dir/lib -C link-arg=-Wl,-rpath,$dir/lib"
+          if [ "$RUNNER_OS" = Linux ]; then flags="$flags -C link-arg=-Wl,-rpath-link,$dir/lib"; fi
+          {
+            echo "LIBMPV_DIR=$dir"
+            echo "PKG_CONFIG_PATH=$dir/lib/pkgconfig"
+            echo "LIBRARY_PATH=$dir/lib"
+            echo "RUSTFLAGS=$flags"
+          } >> "$GITHUB_ENV"
+
+      # The tests use the ffmpeg command. This build is only a test tool and is never shipped.
+      - name: Install the FFmpeg command and the build tools (macOS)
+        if: runner.os == 'macOS'
+        env:
+          HOMEBREW_NO_INSTALL_CLEANUP: "1"
+        run: |
+          brew install ffmpeg
+          xcrun metal --version || xcodebuild -downloadComponent MetalToolchain
+
+      # Ubuntu 22.04: the libraries GPUI needs to build (list taken from Zed's script/linux) and
+      # the ffmpeg command for the tests. libmpv comes from our own build, not from apt.
+      - name: Install FFmpeg and GPUI build libraries (Ubuntu)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential pkg-config clang cmake \
+            ffmpeg \
+            libasound2-dev libfontconfig-dev libwayland-dev libx11-xcb-dev \
+            libxkbcommon-x11-dev libvulkan1 libzstd-dev
+
+      - name: Install FFmpeg (Windows)
+        if: runner.os == 'Windows'
+        run: choco install ffmpeg --no-progress -y
+
+      # Windows: unpack the pinned libmpv development package, check its SHA-256, and make an
+      # MSVC import library (mpv.lib) from the DLL's export list so that the linker can use it.
+      - name: Install libmpv (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $archive = Join-Path $env:RUNNER_TEMP 'mpv-dev.7z'
+          $dir = Join-Path $env:RUNNER_TEMP 'mpv-dev'
+          Invoke-WebRequest -Uri $env:MPV_WIN_URL -OutFile $archive
+          $hash = (Get-FileHash $archive -Algorithm SHA256).Hash.ToLower()
+          if ($hash -ne $env:MPV_WIN_SHA256) { throw "mpv-dev archive has SHA-256 $hash, expected $env:MPV_WIN_SHA256" }
+          7z x $archive "-o$dir" -y | Out-Null
+          if (-not (Test-Path (Join-Path $dir 'libmpv-2.dll'))) { throw 'libmpv-2.dll is not in the archive' }
+          $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          $tools = Join-Path $vs 'VC\Tools\MSVC'
+          $libexe = Get-ChildItem $tools -Recurse -Filter lib.exe | Where-Object { $_.FullName -match 'Hostx64\\x64' } | Select-Object -First 1
+          $dumpbin = Get-ChildItem $tools -Recurse -Filter dumpbin.exe | Where-Object { $_.FullName -match 'Hostx64\\x64' } | Select-Object -First 1
+          # The package has no .def file (only a MinGW import library), so list the exports of the
+          # DLL itself and write the .def from them.
+          $exports = & $dumpbin.FullName /nologo /exports (Join-Path $dir 'libmpv-2.dll') |
+            ForEach-Object { if ($_ -match '^\s+\d+\s+[0-9A-Fa-f]+\s+[0-9A-Fa-f]{8}\s+(\S+)') { $Matches[1] } }
+          if (-not ($exports | Where-Object { $_ -eq 'mpv_create' })) { throw 'mpv_create is not exported by libmpv-2.dll' }
+          @('LIBRARY libmpv-2.dll', 'EXPORTS') + $exports | Set-Content -Encoding ascii (Join-Path $dir 'mpv.def')
+          & $libexe.FullName "/def:$dir\mpv.def" /name:libmpv-2.dll "/out:$dir\mpv.lib" /MACHINE:X64
+          if ($LASTEXITCODE -ne 0) { throw 'lib.exe failed' }
+          "RUSTFLAGS=-L native=$dir" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+          $dir | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
+
+      - name: Format
+        if: matrix.task == 'lint'
+        run: cargo fmt --check
+
+      - name: Clippy
+        if: matrix.task == 'lint'
+        run: cargo clippy --locked --workspace --all-targets -- -D warnings
+
+      # The Intel Mac is the slowest runner (a cold build of the whole workspace takes more than
+      # 13 minutes). The GPUI window tests of vaio-desktop compile most of that, and they run on
+      # the Apple Silicon Mac, so the Intel job runs every other crate's tests.
+      - name: Test
+        if: matrix.task == 'test' && matrix.target != 'macos-intel'
+        run: cargo test --locked --workspace --no-fail-fast
+
+      - name: Test (without the desktop window tests)
+        if: matrix.task == 'test' && matrix.target == 'macos-intel'
+        run: cargo test --locked --workspace --exclude vaio-desktop --no-fail-fast
+
+      - name: Language share
+        if: matrix.task == 'lint'
+        run: cargo xtask lang-share --min 85
+
+      - name: Structure
+        if: matrix.task == 'lint'
+        run: cargo xtask check-structure
+
+      - name: App icons are current
+        if: matrix.task == 'lint' && runner.os == 'Linux'
+        run: cargo xtask icons --check

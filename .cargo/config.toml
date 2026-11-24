@@ -1,0 +1,9 @@
+[alias]
+xtask = "run --package xtask --"
+
+# libmpv is linked by vaio-media. Homebrew keeps it outside the default linker search path.
+[target.aarch64-apple-darwin]
+rustflags = ["-L", "/opt/homebrew/lib"]
+
+[target.x86_64-apple-darwin]
+rustflags = ["-L", "/usr/local/lib"]

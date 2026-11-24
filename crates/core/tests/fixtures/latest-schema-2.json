@@ -1,0 +1,7 @@
+{
+  "schema": 2,
+  "minimum_channel": "stable",
+  "artifacts": [
+    { "platform": "macos-aarch64", "delta_from": "0.1.0" }
+  ]
+}

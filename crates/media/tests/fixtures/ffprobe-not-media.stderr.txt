@@ -1,0 +1,1 @@
+/tmp/vaio-ffprobe.aR7i9p/text.txt: Invalid data found when processing input

@@ -1,0 +1,25 @@
+[package]
+name = "vaio-desktop"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+gpui-kit.workspace = true
+vaio-core = { path = "../../crates/core" }
+vaio-platform = { path = "../../crates/platform" }
+vaio-media = { path = "../../crates/media" }
+vaio-storage = { path = "../../crates/storage" }
+tokio.workspace = true
+tokio-util.workspace = true
+
+[features]
+production = ["vaio-platform/production"]
+
+[dev-dependencies]
+gpui-kit = { workspace = true, features = ["test-support"] }
+
+[[bin]]
+name = "vaio-recovery-child"
+path = "tests/bin/recovery_child.rs"
+test = false
+doc = false

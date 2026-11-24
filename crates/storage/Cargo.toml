@@ -1,0 +1,9 @@
+[package]
+name = "vaio-storage"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+vaio-core = { path = "../core" }
+rusqlite.workspace = true
+
