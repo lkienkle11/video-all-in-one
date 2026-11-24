@@ -42,6 +42,7 @@ crates/core/src/ports | Declares the traits the core needs from adapters, such a
 crates/core/src/services | Turns segments and a cut mode into the FFmpeg steps, support files and outputs of an export, without running any process.
 crates/core/src/update | Parses and validates the update manifest and decides whether a newer version is offered, without I/O.
 crates/media | Implements media processing and playback integrations.
+crates/media/src/ffmpeg | Derives planned durations and owns exclusive output publication and rollback for export execution.
 crates/media/src/process_runner | Owns native process-tree cleanup and bounded, secret-redacted subprocess output decoding.
 crates/platform | Provides operating system integration and external tool resolution.
 crates/platform/src/update | Fetches updates over HTTPS, stages and verifies artifacts, and installs or reveals them with per-OS commands and macOS bundle rollback.
