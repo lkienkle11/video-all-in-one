@@ -295,6 +295,9 @@ fn script_restores_the_previous_files_when_a_step_fails() {
     assert!(flag < at(failure, "Delete \"$INSTDIR\\.previous\\$R3\""));
     assert!(flag < at(failure, "RMDir \"$INSTDIR\\.previous\""));
     assert!(failure.matches("StrCpy $UpdateRestoreFailed 1").count() >= 2);
+    // Every label that a loop jumps to must exist in the same function, or makensis refuses it.
+    assert!(failure.contains("IfErrors cleanupdone"));
+    assert!(failure.contains("\n  cleanupdone:\n"));
     let install = &script[..at(&script, "Section \"Uninstall\"")];
     for (index, line) in install
         .lines()
