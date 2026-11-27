@@ -149,18 +149,24 @@ The goal is that a Windows customer installs nothing, so this task has an ordere
 - [ ] **Step 4: Verify** `ffmpeg.exe -encoders` lists `libopenh264` on the runner and `-version` shows no `--enable-gpl`.
 - [ ] **Step 5: Commit** `ci(release): provide an LGPL FFmpeg for Windows`.
 
-### Task 1.6: Precise cut uses OpenH264
+### Task 1.6: Precise cut picks an H.264 encoder that the FFmpeg really has
+
+Decision of the user (2026-11-27): the encoder is chosen at run time from what the FFmpeg in use offers, in this order: `libopenh264`, `libx264`, `h264_mf` (Windows), `h264_videotoolbox` (macOS). Our packages carry an LGPL FFmpeg with OpenH264 and no x264 (Task 1.7 refuses a package whose FFmpeg lists `libx264`), so a release never uses `libx264`; a developer's own FFmpeg may. This replaces the earlier fixed switch to `libopenh264` and makes the `windows_uses_media_foundation` flag unnecessary, because Windows uses `h264_mf` when no better encoder exists.
 
 **Files:**
-- Modify: `crates/core/src/services/media_planner.rs` (around line 263: `-c:v libx264 -preset veryfast -crf 18 -pix_fmt` becomes `-c:v libopenh264` with a bitrate; the bitrate rule is the builder's call, for example the source video bitrate with a floor)
-- Test: `crates/core/src/services/media_planner_tests.rs`, `media_planner_windows_tests.rs`; `crates/media/tests/export_runner.rs`
+- Modify: `crates/core/src/domain/export.rs` (`H264Encoder`, `pick_h264_encoder`), `crates/core/src/services/media_planner.rs` (`ExportRequest.precise_encoder`, arguments per encoder, `video_bitrate_bps`), `crates/media/src/ffmpeg.rs` (list the encoders of an FFmpeg), `crates/media/src/export_runner.rs` (probe, pick, pass into the request, plain failure when none), `apps/desktop/src/commands/export.rs` (the validation-only request)
+- Modify (compiler-flagged propagation of the new field, nothing else): `crates/core/src/services/media_planner_fixtures.rs`, `media_planner_tests.rs`, `media_planner_guard_tests.rs`, `media_planner_windows_tests.rs`, `crates/media/src/ffmpeg_tests.rs`
+- Test: `crates/core/src/domain/export.rs`, `crates/core/src/services/media_planner_tests.rs`, `crates/media/src/ffmpeg_tests.rs`, `crates/media/tests/export_runner.rs`
 
-- [ ] **Step 1: Write the failing tests:** add `pub fn precise_encoder(os: &str, windows_uses_media_foundation: bool) -> &'static str` to `media_planner.rs` (returns `libopenh264` except `h264_mf` on Windows when the Task 1.5 fallback was used); tests `encoder_is_openh264_on_macos_and_ubuntu`, `encoder_is_h264_mf_on_windows_only_under_the_fallback`; `precise_plan_uses_the_selected_encoder`, `precise_plan_never_mentions_libx264`, `precise_plan_sets_a_video_bitrate`; and in `export_runner.rs`: `precise_cut_output_probes_as_h264_with_the_requested_duration` (uses the bundled `ffmpeg` from the libmpv folder; the test fails, not skips, when the encoder is missing).
-- [ ] **Step 2: Run** `cargo test -p vaio-core media_planner` — expected FAIL.
-- [ ] **Step 3: Implement** the argument change; keep the existing segment and audio logic.
-- [ ] **Step 4: Run** the full suite — expected PASS.
-- [ ] **Step 5: Quality gate (tester):** pass criteria are a valid file, cut points within the existing tolerance, and no visible blocking on the shared 1080p sample; failures are reported to the user, who decides whether to accept the quality difference.
-- [ ] **Step 6: Commit** `feat(core): encode Precise cut with OpenH264`.
+**Interfaces:**
+- Produces: `pub enum H264Encoder { OpenH264, X264, MediaFoundation, VideoToolbox }` with `fn ffmpeg_name(&self) -> &'static str`; `pub fn pick_h264_encoder(available: &[String], os: &str) -> Option<H264Encoder>` (order above; `h264_mf` only when `os == "windows"`, `h264_videotoolbox` only when `os == "macos"`); `pub fn video_bitrate_bps(width: u32, height: u32) -> u32` (`width * height * 3`, clamped to 1_500_000..=20_000_000; the builder may change the factor and says so); `ExportRequest { precise_encoder: H264Encoder, .. }`; in `crates/media/src/ffmpeg.rs`: `pub fn parse_h264_encoders(encoders_output: &str) -> Vec<String>` (names of H.264 encoders in `ffmpeg -hide_banner -encoders` output) and `pub fn list_h264_encoders(ffmpeg: &Path) -> Result<Vec<String>, ...>`.
+
+- [ ] **Step 1: Write the failing tests:** `pick_prefers_openh264_over_every_other`, `pick_prefers_x264_over_platform_encoders`, `pick_uses_media_foundation_only_on_windows`, `pick_uses_videotoolbox_only_on_macos`, `pick_returns_none_when_no_h264_encoder`, `the_lgpl_bundle_list_never_picks_x264` (a list with `libopenh264` and `h264_mf` but no x264); `precise_args_for_openh264_use_a_bitrate_and_no_crf_or_preset`, `precise_args_for_x264_keep_the_existing_crf_and_preset`, `bitrate_is_clamped`; `parse_h264_encoders_reads_the_encoders_listing`; in `export_runner.rs`: `precise_export_fails_with_a_plain_reason_when_the_ffmpeg_has_no_h264_encoder`. Existing integration tests that run Precise cuts against the machine's FFmpeg set `precise_encoder` to `H264Encoder::X264` in their requests.
+- [ ] **Step 2: Run** `cargo test -p vaio-core -p vaio-media` — expected FAIL (items missing).
+- [ ] **Step 3: Implement** the enum, the pure picker, the argument change per encoder (keep the segment and audio logic), the encoder listing and the runner's probe; the picker result is cached per runner.
+- [ ] **Step 4: Run** `cargo test --workspace` — expected PASS, with no existing test weakened.
+- [ ] **Step 5: Quality gate (tester):** with the bundled FFmpeg, pass criteria are a valid file, cut points within the existing tolerance, and no visible blocking on the shared 1080p sample; failures are reported to the user, who decides whether to accept the quality difference. Run once with `libopenh264` (macOS, Ubuntu) and once with `h264_mf` (Windows).
+- [ ] **Step 6: Commit** `feat(core): pick the H.264 encoder from what the FFmpeg offers`.
 
 ### Task 1.7: Packagers carry the tools, Ubuntu stops recommending FFmpeg
 
@@ -171,7 +177,7 @@ The goal is that a Windows customer installs nothing, so this task has an ordere
 **Interfaces:**
 - Consumes: `bundled_tool_dir` layouts from Task 1.3. Produces: packages that contain `ffmpeg`, `ffprobe`, `libopenh264`, their licence texts and source URLs.
 
-- [ ] **Step 1: Write the failing tests:** `deb_control_has_no_ffmpeg_recommendation`, `deb_lists_the_bundled_tools`, `macos_bundle_contains_resources_bin_tools`, `nsis_script_installs_bin_tools`, `package_without_tools_is_refused`.
+- [ ] **Step 1: Write the failing tests:** `deb_control_has_no_ffmpeg_recommendation`, `deb_lists_the_bundled_tools`, `macos_bundle_contains_resources_bin_tools`, `nsis_script_installs_bin_tools`, `package_without_tools_is_refused`, `package_whose_ffmpeg_lists_libx264_is_refused` (runs `ffmpeg -hide_banner -encoders` of the bundled copy).
 - [ ] **Step 2: Run** `cargo test -p xtask package` — expected FAIL.
 - [ ] **Step 3: Implement** in each packager; macOS tools are signed ad hoc with the rest of the bundle and checked for `/opt/homebrew` and `/usr/local` references like the other binaries.
 - [ ] **Step 4: Run** `cargo test -p xtask` — expected PASS; run the CI smoke steps on all three runners.
@@ -222,6 +228,100 @@ Start with a spike: every Mach-O file in the two thin bundles (main binary, libm
 - [ ] **Step 1: Write** the checklist from the spec's Verification section: install the dev build, follow the README steps for the system's warning, add a video, confirm the file filter and folder dialog (Phase 2), trigger an unwritable-folder error and see the toast (Phase 2), resize the window, listen to the preview, export in Fast and Precise, check the icon, uninstall. Add the Phase 1 cases: machine with another FFmpeg on `PATH` (bundled copy used) and machine with none; on Windows, Precise cut works (`h264_mf` or OpenH264, as built). Add the Phase 2 cases: the "set from preview" buttons; a save folder that cannot be written to at each check point (chosen, window focused again, Export, queued job); a folder deleted after it was chosen (recreated, Info toast); on Windows a folder protected by Controlled folder access; a batch with several failures (one toast, details in the queue); the queue shows the video name and "Copy details". Add the Phase 2b case: read every screen and report any wording that is unclear. Name the phase's handoff file (`.context/…-handoff.md`) at the top of the checklist so the tester knows which build and state is under test.
 - [ ] **Step 2: Verify** `cargo xtask check-structure` passes with the new `docs/testing` folder.
 - [ ] **Step 3: Commit** `docs: describe bundled tools, the dev release and the clean-machine checklist`.
+
+### Task 1.13: Windows update removes the files of the old version and waits for the app
+
+Added 2026-11-27 after reading the updater: the silent NSIS install only overwrites; files the new version no longer ships (for example a DLL whose name carries a version number) stay forever, and the installer does not wait for the running app to release its executable.
+
+**Files:**
+- Modify: `xtask/src/package/nsis.rs`, `xtask/src/package/tests.rs`, `crates/platform/src/update/install_windows.rs`, `crates/platform/src/update/install_tests.rs`
+
+**Interfaces:**
+- Produces: the generated installer script (a) waits up to 60 seconds until `$INSTDIR\<exe>` can be opened for writing and fails with a clear message if it cannot; (b) before copying, reads `$INSTDIR\install-manifest.txt` (if present) and deletes exactly the files it lists, never a folder tree, and only names that stay inside `$INSTDIR` (no `..`, no drive or absolute path); (c) after copying, writes the new `install-manifest.txt` with every installed file; the uninstaller also deletes the manifest. `install_windows.rs` keeps starting the installer with `/S`.
+
+- [ ] **Step 1: Write the failing tests:** `script_waits_for_the_executable_to_be_writable`, `script_deletes_exactly_the_files_listed_in_the_previous_manifest`, `script_never_deletes_a_folder_tree_during_an_upgrade`, `manifest_entries_with_dotdot_or_absolute_paths_are_not_deleted`, `script_writes_a_manifest_of_every_installed_file`, `uninstaller_deletes_the_manifest`.
+- [ ] **Step 2: Run** `cargo test -p xtask nsis` — expected FAIL.
+- [ ] **Step 3: Implement** in the generated NSIS script (builder's call: how the manifest is read and validated inside NSIS; the plain-NSIS wait loop uses `FileOpen` in append mode). The destructive step follows the `security-and-hardening` rule for derived paths: resolved under the install folder, never above it.
+- [ ] **Step 4: Run** `cargo test --workspace` — expected PASS. The real behaviour is checked by the testers on Windows (upgrade from the previous release with the app open).
+- [ ] **Step 5: Commit** `fix(xtask): remove old files and wait for the app when the Windows installer upgrades`.
+
+### Task 1.14: Ubuntu update installs new system dependencies
+
+Added 2026-11-27: the update runs `dpkg -i`, which does not install the packages named in `Depends:`; a new dependency makes the update fail half-way.
+
+**Files:**
+- Modify: `crates/platform/src/update/steps/deb.rs`, `crates/platform/src/update/install_linux.rs`, `crates/platform/src/update/install_tests.rs`
+
+**Interfaces:**
+- Produces: `pub fn apt_command(copy: &Path) -> Command` running `/usr/bin/apt-get install -y --no-install-recommends <absolute path of the private copy>` as an argument list (never through a shell), used when `/usr/bin/apt-get` exists; otherwise the existing `dpkg_command` runs and a failed run still reports the unmet dependency in plain words. The SHA-256 re-check of the private copy before the root step stays unchanged.
+
+- [ ] **Step 1: Write the failing tests:** `apt_runs_with_an_argument_list_and_no_shell`, `apt_command_names_the_private_copy_by_absolute_path`, `apt_is_used_when_it_exists_and_dpkg_otherwise`, `mismatching_bytes_are_still_refused_before_any_installer_runs`.
+- [ ] **Step 2: Run** `cargo test -p vaio-platform update` — expected FAIL.
+- [ ] **Step 3: Implement** the command and the choice. Note for the report: apt may warn that the file is read by root outside its sandbox; that is expected.
+- [ ] **Step 4: Run** `cargo test --workspace` — expected PASS. Testers check an update that adds a dependency (remove it first) on Ubuntu 22.04.
+- [ ] **Step 5: Commit** `fix(platform): install the new dependencies of an Ubuntu update`.
+
+### Task 1.15: A clear message when the app data cannot be opened
+
+Added 2026-11-27: `main.rs` prints the error and exits silently when the database cannot be opened. With the Windows console gone (Task 1.1) the customer sees nothing.
+
+**Files:**
+- Create: `apps/desktop/src/startup_error.rs`, `apps/desktop/tests/startup_error.rs`
+- Modify: `apps/desktop/src/main.rs`, `apps/desktop/src/lib.rs`, `crates/core/src/i18n/mod.rs`, `en.rs`, `vi.rs`, `tests.rs`
+
+**Interfaces:**
+- Produces: `pub enum StartupProblem { NewerData, UnknownDatabase, Other }`, `pub fn problem_of(error: &StorageError) -> StartupProblem`, and a small window (`StartupErrorView`) that shows a plain-language title, one or two sentences, the data folder path and a Close button, in the customer's language (English when none is saved). Texts (both languages, no technical terms): newer data ("Your data was created by a newer version of Video All-in-One. Install the newest version to open it."), unknown database ("The data file in the data folder is not from Video All-in-One. Nothing was changed."), other ("Video All-in-One could not open its data. A backup copy was kept in the data folder."). `main.rs` opens this window instead of returning silently.
+
+- [ ] **Step 1: Write the failing tests:** `schema_too_new_is_newer_data`, `foreign_database_is_unknown_database`, `other_errors_are_other`, `every_startup_text_exists_in_both_languages` (i18n), `the_window_shows_the_text_and_the_data_folder`, `the_window_closes_the_app_when_close_is_pressed`.
+- [ ] **Step 2: Run** `cargo test -p vaio-desktop --test startup_error` and `cargo test -p vaio-core i18n` — expected FAIL.
+- [ ] **Step 3: Implement.** The view follows `gpui-kit` and `gpui-kit-design-guides`; the language comes from the settings file when it can be read, English otherwise.
+- [ ] **Step 4: Run** `cargo test --workspace` — expected PASS.
+- [ ] **Step 5: Commit** `feat(desktop): show a message when the app data cannot be opened`.
+
+### Task 1.16: Upgrade cases in the tester checklist
+
+Added 2026-11-27.
+
+**Files:**
+- Modify: `docs/testing/clean-machine-checklist.md`, `docs/RELEASING.md`
+
+- [ ] **Step 1: Add** to each system's table, marked Phase 1: update in the app from the previous released version to the new production build (macOS, Windows, Ubuntu), with data and settings kept; Windows: update while the app is open and check that no old DLL stays in `<install folder>\bin` after a build that renames one; Ubuntu: update when the new package adds a dependency that is not installed (remove it first); open an older version over newer data and see the message of Task 1.15; update with little free disk space and see a clear failure that leaves the old version working.
+- [ ] **Step 2: Add** a short "Upgrade checks" section to `docs/RELEASING.md` that says these checks are part of every release.
+- [ ] **Step 3: Verify** `cargo xtask check-structure` passes.
+- [ ] **Step 4: Commit** `docs: add the upgrade cases to the tester checklist`.
+
+### Task 1.17: The update dialog says when work is still running
+
+Added 2026-11-27: the confirmation ("Update now?") does not mention running exports; confirming quits the app and stops them.
+
+**Files:**
+- Modify: `apps/desktop/src/update_wiring.rs`, `apps/desktop/src/ui/update_dialog.rs`, `apps/desktop/src/state.rs`, `crates/core/src/i18n/mod.rs`, `en.rs`, `vi.rs`, `tests.rs`
+- Test: `apps/desktop/tests/update_dialog.rs`, `apps/desktop/tests/updater.rs`
+
+**Interfaces:**
+- Produces: `AppState::running_job_count(&self) -> usize` (jobs that are Queued or Running); `pub enum UpdateChoice { AfterJobs, Now, Later }`. With no running work the dialog is unchanged. With running work it says how many exports are running ("N exports are still running. Updating now stops them.") and offers three buttons: update after they finish, update now (stops them), later. "After they finish" waits until the count is 0 and then starts the same install flow as "Update now".
+
+- [ ] **Step 1: Write the failing tests:** `dialog_without_running_work_is_unchanged`, `dialog_with_running_work_names_the_count`, `after_jobs_waits_until_no_job_is_running_then_installs`, `now_installs_at_once_even_with_running_work`, `later_installs_nothing`, `every_new_text_exists_in_both_languages`.
+- [ ] **Step 2: Run** `cargo test -p vaio-desktop --test update_dialog` and `cargo test -p vaio-core i18n` — expected FAIL.
+- [ ] **Step 3: Implement.**
+- [ ] **Step 4: Run** `cargo test --workspace` — expected PASS.
+- [ ] **Step 5: Commit** `feat(desktop): tell the customer about running exports before an update`.
+
+### Task 1.18: Windows update keeps the old files until the new ones are in place
+
+Added 2026-11-27 (the "middle" level the user chose): macOS already restores the old app when a swap fails; Windows overwrites in place with no way back and no message. The fuller design (keep the old version on every system until the new one has started once) is left for a later phase.
+
+**Files:**
+- Modify: `xtask/src/package/nsis.rs`, `xtask/src/package/tests.rs`, `crates/platform/src/update/install_windows.rs`, `crates/platform/src/update/install_tests.rs`
+
+**Interfaces:**
+- Consumes: the `install-manifest.txt` of Task 1.13. Produces, in the generated installer script: before the first file is written, every file listed in the old manifest is copied to `$INSTDIR\.previous` (same relative names); if any copy or any `File` step fails, the files from `.previous` are copied back over the install folder, the new files that were added are removed, and a text file `update-error.txt` is written in the app's data folder (the same name and place the macOS updater uses, so the app already shows "The last update did not finish") saying what failed and where `.previous` is; on success the files listed in `.previous` are deleted one by one and the empty folder removed (never a folder tree). A fresh install (no old manifest) skips the backup.
+
+- [ ] **Step 1: Write the failing tests:** `script_copies_the_old_manifest_files_to_previous_before_writing`, `script_restores_the_previous_files_when_a_step_fails`, `script_writes_update_error_txt_in_the_data_folder_on_failure`, `script_deletes_previous_file_by_file_on_success`, `script_never_removes_a_folder_tree_for_previous`, `fresh_install_skips_the_backup`, `data_folder_in_the_script_matches_the_apps_data_folder_for_both_channels`.
+- [ ] **Step 2: Run** `cargo test -p xtask nsis` — expected FAIL.
+- [ ] **Step 3: Implement** in the NSIS script, after Task 1.13 (same file). The builder reads `crates/platform/src/paths.rs` and `apps/desktop/src/app.rs` (`data_base`) so the script writes to the folder the app reads.
+- [ ] **Step 4: Run** `cargo test --workspace` — expected PASS. The real behaviour (a forced failure in the middle of an upgrade, app restored) is checked by the Windows testers.
+- [ ] **Step 5: Commit** `feat(xtask): let the Windows installer undo a failed upgrade`.
 
 ### Task 1.11: Phase 1 gate
 
