@@ -138,8 +138,11 @@ fn relocate_macho(
     if add {
         args.extend(["-add_rpath".into(), wanted.into()]);
     }
-    args.push(path_arg(library));
-    run(Path::new("install_name_tool"), &args, out, env)?;
+    // Nothing to edit on a program relocated before: install_name_tool would fail on a bare path.
+    if has_edits(&args) {
+        args.push(path_arg(library));
+        run(Path::new("install_name_tool"), &args, out, env)?;
+    }
     run(
         Path::new("codesign"),
         &[
@@ -153,9 +156,13 @@ fn relocate_macho(
     )
 }
 
-/// Which run paths to delete and whether to add `@loader_path`, so that running the relocation
-/// again on an already relocated library (a rebuild from a cached folder) changes nothing:
-/// `install_name_tool` refuses to delete and add the same run path in one call.
+/// Whether `install_name_tool` has a change to make.
+fn has_edits(args: &[String]) -> bool {
+    !args.is_empty()
+}
+
+/// Which run paths to delete and whether to add `@loader_path`, so that relocating again (a rebuild
+/// from a cached folder) changes nothing: `install_name_tool` refuses to delete and add one path.
 fn rpath_edits(existing: &[String], wanted: &str) -> (Vec<String>, bool) {
     let delete = existing
         .iter()
@@ -383,5 +390,11 @@ mod rpath_tests {
             ),
             (vec!["/opt/y".to_string()], false)
         );
+    }
+
+    #[test]
+    fn a_relocated_program_needs_no_install_name_tool_call() {
+        assert!(!has_edits(&[]));
+        assert!(has_edits(&["-id".to_string()]));
     }
 }
