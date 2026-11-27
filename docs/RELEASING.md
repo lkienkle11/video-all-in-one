@@ -63,6 +63,10 @@ Do these once, on your own machine. The agent that wrote the pipeline did not do
 5. Protect release tags: Settings, Rules, Rulesets, New tag ruleset. Target the pattern `v*`. Turn on "Restrict creations", "Restrict updates" and "Restrict deletions", and allow only the repository owner to bypass. Without this, anyone with write access can publish a release.
 6. Settings, Actions, General: set the default workflow permissions to read-only. The release workflow asks for `contents: write` only in its last job.
 
+## Upgrade checks
+
+Run the upgrade checks in `docs/testing/clean-machine-checklist.md` as part of every release on each supported system. The first Windows build is also the first time the installer script is compiled, so the release manager watches that step. During an update, macOS keeps its backup in a hidden `.vaio-update-*` folder next to the app, Windows uses `.previous`, and Ubuntu has no backup folder because `dpkg` manages the files.
+
 ## How to release
 
 1. Decide the version number from the size of the work (the project's release tag rule: propose it, wait for the user's answer).
