@@ -124,7 +124,7 @@ The package licence scan refuses FFmpeg builds configured with `--enable-gpl`, `
 
 Precise cut chooses an H.264 encoder offered by FFmpeg in this order: `libopenh264`, then `libx264`, then `h264_mf` on Windows, then `h264_videotoolbox` on macOS.
 
-**NOT YET DONE:** Windows FFmpeg and FFprobe must come from the pinned LGPL build and be copied into a release of this repository before Windows packages can use them; see the Windows FFmpeg research note. The universal macOS DMG is also not yet done; the current packages have separate Apple silicon and Intel DMGs.
+**Windows FFmpeg:** the release workflow downloads the verified BtbN LGPL shared zip from the release `ffmpeg-win-1` of this repository (copied there once, SHA-256 pinned in `release.yml`), and passes it to the packager with `--tools`; its DLLs go in `bin` only. The patent duties of OpenH264 are accepted by the project owner (decision of 2026-11-27: use it and release). **NOT YET DONE:** the release `ffmpeg-win-1` must be created (needs the owner's permission to publish); until then the Windows build fails at the download. The universal macOS DMG is also not yet done; the current packages have separate Apple silicon and Intel DMGs.
 
 ## App icons
 

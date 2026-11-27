@@ -220,6 +220,7 @@ mod tests {
                 &dir.0.join("out"),
                 &super::super::Release::production("1.2.3", "windows-x86_64"),
                 Some(&libs),
+                None,
                 false,
             )
             .unwrap_err()
@@ -241,6 +242,7 @@ mod tests {
             &dir.0.join("out"),
             &super::super::Release::production("1.2.3", "windows-x86_64"),
             Some(&dir.0),
+            None,
             false,
         )
         .unwrap_err()

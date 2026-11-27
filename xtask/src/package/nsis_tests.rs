@@ -221,7 +221,6 @@ fn script_writes_a_manifest_of_every_installed_file() {
         "video-all-in-one.exe",
         "libmpv-2.dll",
         "third-party\\SOURCES.txt",
-        "bin\\libmpv-2.dll",
         "bin\\ffmpeg.exe",
         "bin\\ffprobe.exe",
     ] {

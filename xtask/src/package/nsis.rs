@@ -118,17 +118,10 @@ fn checked(operation: &str, what: &str) -> String {
 /// and not `uninstall.exe`.
 fn write_the_manifest(files: &[String]) -> Vec<String> {
     let mut lines = vec![format!("  FileOpen $R2 \"$INSTDIR\\{MANIFEST}\" w")];
-    let dlls = files
-        .iter()
-        .filter(|file| file.to_ascii_lowercase().ends_with(".dll"));
-    let entries = files
-        .iter()
-        .cloned()
-        .chain(dlls.map(|file| format!("bin\\{file}")))
-        .chain([
-            "bin\\ffmpeg.exe".to_string(),
-            "bin\\ffprobe.exe".to_string(),
-        ]);
+    let entries = files.iter().cloned().chain([
+        "bin\\ffmpeg.exe".to_string(),
+        "bin\\ffprobe.exe".to_string(),
+    ]);
     for entry in entries {
         lines.push(format!("  FileWrite $R2 \"{entry}$\\r$\\n\""));
     }
@@ -148,7 +141,11 @@ pub(super) fn installer_script(
     icon: &Path,
 ) -> Result<String> {
     for file in files {
-        check_file_name(file.strip_prefix("third-party\\").unwrap_or(file))?;
+        check_file_name(
+            file.strip_prefix("third-party\\")
+                .or_else(|| file.strip_prefix("bin\\"))
+                .unwrap_or(file),
+        )?;
     }
     let (app_name, identifier) = (channel.app_name(), channel.identifier());
     let exe = format!("$INSTDIR\\{}.exe", channel.binary_name());
@@ -193,6 +190,8 @@ pub(super) fn installer_script(
     for file in files {
         let destination = if file.starts_with("third-party\\") {
             "$INSTDIR\\third-party"
+        } else if file.starts_with("bin\\") {
+            "$INSTDIR\\bin"
         } else {
             "$INSTDIR"
         };
@@ -204,18 +203,6 @@ pub(super) fn installer_script(
         ));
     }
     lines.push("  SetOutPath \"$INSTDIR\\bin\"".into());
-    for file in files
-        .iter()
-        .filter(|file| file.to_ascii_lowercase().ends_with(".dll"))
-    {
-        lines.push(checked(
-            &format!(
-                "  File {}",
-                quote(&format!("{}\\{file}", source_dir.display()))?
-            ),
-            &format!("Installing bin\\{file}"),
-        ));
-    }
     for name in ["ffmpeg.exe", "ffprobe.exe"] {
         lines.push(checked(
             &format!(
@@ -244,12 +231,6 @@ pub(super) fn installer_script(
     let payload_start = lines.len();
     for file in files {
         lines.push(format!("  Delete \"$INSTDIR\\{file}\""));
-    }
-    for file in files
-        .iter()
-        .filter(|file| file.to_ascii_lowercase().ends_with(".dll"))
-    {
-        lines.push(format!("  Delete \"$INSTDIR\\bin\\{file}\""));
     }
     for name in ["ffmpeg.exe", "ffprobe.exe"] {
         lines.push(format!("  Delete \"$INSTDIR\\bin\\{name}\""));
@@ -296,6 +277,7 @@ pub(super) fn build(
     out: &Path,
     release: &Release,
     libs: Option<&Path>,
+    tools: Option<&Path>,
     allow_gpl: bool,
 ) -> Result<()> {
     let Release {
@@ -304,7 +286,8 @@ pub(super) fn build(
     let Some(libs) = libs else {
         bail!("--libs is required on Windows: the folder with libmpv-2.dll and the DLLs it needs");
     };
-    let tools = bundled_tools(libs, true, allow_gpl)?;
+    let tools_dir = tools.unwrap_or(libs);
+    let tools = bundled_tools(tools_dir, true, allow_gpl)?;
     let stage = out.join(stage_name(channel, "windows"));
     if stage.exists() {
         fs::remove_dir_all(&stage).with_context(|| format!("clearing {}", stage.display()))?;
@@ -339,6 +322,26 @@ pub(super) fn build(
                 .with_context(|| format!("copying {}", path.display()))?;
             files.push(name);
             dlls.push(path);
+        }
+    }
+    // The DLLs of a shared FFmpeg sit in `bin` beside the tools, never beside the app.
+    if tools_dir != libs {
+        fs::create_dir_all(stage.join("bin"))?;
+        for entry in fs::read_dir(tools_dir)? {
+            let path = entry?.path();
+            let is_dll = path
+                .extension()
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("dll"));
+            if path.is_file() && is_dll {
+                let name = path
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_default();
+                fs::copy(&path, stage.join("bin").join(&name))
+                    .with_context(|| format!("copying {}", path.display()))?;
+                files.push(format!("bin\\{name}"));
+                dlls.push(path);
+            }
         }
     }
     for warning in check_bundle_license(&dlls, allow_gpl)? {
@@ -386,3 +389,7 @@ pub(super) fn build(
 #[cfg(test)]
 #[path = "nsis_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "nsis_tools_tests.rs"]
+mod tools_tests;

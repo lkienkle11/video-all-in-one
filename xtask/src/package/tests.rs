@@ -144,7 +144,8 @@ fn nsis_script_installs_bin_tools() {
         );
     }
     assert!(script.contains("RMDir \"$INSTDIR\\bin\""));
-    assert!(script.contains("Delete \"$INSTDIR\\bin\\libmpv-2.dll\""));
+    // The libmpv DLL stays beside the app only; the tools bring their own DLLs into bin.
+    assert!(!script.contains("Delete \"$INSTDIR\\bin\\libmpv-2.dll\""));
     assert!(!script.contains("RMDir /r"));
 }
 

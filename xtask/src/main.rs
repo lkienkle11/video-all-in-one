@@ -80,6 +80,9 @@ enum Command {
         /// Windows only: the folder with libmpv-2.dll and the DLLs it needs.
         #[arg(long)]
         libs: Option<PathBuf>,
+        /// Windows only: the folder with ffmpeg.exe, ffprobe.exe and their DLLs (default: `--libs`).
+        #[arg(long)]
+        tools: Option<PathBuf>,
         /// macOS and Ubuntu: the folder of our own libmpv build (`cargo xtask libmpv build`).
         #[arg(long)]
         libmpv_dir: Option<PathBuf>,
@@ -128,6 +131,7 @@ fn main() -> Result<()> {
             out,
             binary,
             libs,
+            tools,
             libmpv_dir,
             arch,
             channel,
@@ -140,6 +144,7 @@ fn main() -> Result<()> {
                 out,
                 binary,
                 libs,
+                tools,
                 libmpv_dir,
                 arch,
                 channel,

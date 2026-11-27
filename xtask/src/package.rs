@@ -89,6 +89,8 @@ pub struct Options {
     pub out: Option<PathBuf>,
     pub binary: Option<PathBuf>,
     pub libs: Option<PathBuf>,
+    /// Windows: the folder with ffmpeg.exe, ffprobe.exe and their DLLs, when not in `libs`.
+    pub tools: Option<PathBuf>,
     /// macOS and Ubuntu: the folder of our own libmpv build.
     pub libmpv_dir: Option<PathBuf>,
     /// The CPU of a cross-compiled executable (`aarch64` or `x86_64`); this machine's when unset.
@@ -228,6 +230,7 @@ pub fn run(root: &Path, options: &Options) -> Result<()> {
             &out,
             &release,
             options.libs.as_deref(),
+            options.tools.as_deref(),
             options.allow_gpl,
         )?,
         // The Ubuntu package bundles our own libmpv, because Ubuntu 22.04 has only the old one.

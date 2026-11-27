@@ -41,6 +41,11 @@ env:
   # Windows only: libmpv for Windows from the LGPL build of zhongfly/mpv-winbuild.
   MPV_WIN_URL: "https://github.com/zhongfly/mpv-winbuild/releases/download/2026-11-23-35efcf53d5/mpv-dev-lgpl-x86_64-20261123-git-35efcf53d5.7z"
   MPV_WIN_SHA256: "029892b3c3951bbb738d05a338698d330e0682b767ff7c142a4da68da68c175a"
+  # Windows only: the LGPL shared FFmpeg of BtbN/FFmpeg-Builds (libopenh264, no GPL, no x264).
+  # BtbN keeps a build for only about 14 days, so the verified zip is copied to a release of this
+  # repository (tag ffmpeg-win-1) and pinned by its SHA-256 (docs/RELEASING.md).
+  FFMPEG_WIN_URL: "https://github.com/${{ github.repository }}/releases/download/ffmpeg-win-1/ffmpeg-n8.1.3-41-ga8029b6528-win64-lgpl-shared-8.1.zip"
+  FFMPEG_WIN_SHA256: "372016b1248544b4ffc290ae41c9c57e6441bd0da32068ea18032a25b7b36e08"
 
 jobs:
   verify:
@@ -233,6 +238,30 @@ jobs:
           "MPV_DIR=$dir" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
           $dir | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
 
+      - name: Install FFmpeg and FFprobe (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $archive = Join-Path $env:RUNNER_TEMP 'ffmpeg-win.zip'
+          $dir = Join-Path $env:RUNNER_TEMP 'ffmpeg-win'
+          Invoke-WebRequest -Uri $env:FFMPEG_WIN_URL -OutFile $archive
+          $hash = (Get-FileHash $archive -Algorithm SHA256).Hash.ToLower()
+          if ($hash -ne $env:FFMPEG_WIN_SHA256) { throw "FFmpeg archive has SHA-256 $hash, expected $env:FFMPEG_WIN_SHA256" }
+          Expand-Archive $archive -DestinationPath $dir -Force
+          $bin = Get-ChildItem $dir -Recurse -Filter ffmpeg.exe | Select-Object -First 1 | ForEach-Object { $_.DirectoryName }
+          if (-not $bin -or -not (Test-Path (Join-Path $bin 'ffprobe.exe'))) { throw 'ffmpeg.exe and ffprobe.exe are not in the archive' }
+          $tools = Join-Path $env:RUNNER_TEMP 'ffmpeg-tools'
+          New-Item -ItemType Directory -Force $tools | Out-Null
+          Get-ChildItem $bin -File | Where-Object { $_.Name -in 'ffmpeg.exe','ffprobe.exe' -or $_.Extension -eq '.dll' } | Copy-Item -Destination $tools
+          # The licence text and where the matching source is, as the LGPL asks.
+          $licenses = Join-Path $env:MPV_DIR 'LICENSES'
+          New-Item -ItemType Directory -Force $licenses | Out-Null
+          $licenseFile = Get-ChildItem $dir -Recurse -Filter LICENSE.txt | Select-Object -First 1
+          Copy-Item $licenseFile.FullName (Join-Path $licenses 'ffmpeg-LICENSE.txt')
+          "FFmpeg n8.1.3-41-ga8029b6528 (LGPL v3, with OpenH264). Source: https://github.com/FFmpeg/FFmpeg and the build scripts in https://github.com/BtbN/FFmpeg-Builds" | Set-Content -Encoding ascii (Join-Path $licenses 'ffmpeg-SOURCE.txt')
+          "FFMPEG_DIR=$tools" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+
       # No tests here: ci.yml runs every test on every pull request and on every push to main, and
       # a release is tagged on a commit that passed it. Running them again doubled the build time.
 
@@ -284,7 +313,7 @@ jobs:
 
       - name: Package (Windows)
         if: matrix.target == 'windows'
-        run: cargo xtask package --target windows --out dist --libs "$MPV_DIR"
+        run: cargo xtask package --target windows --out dist --libs "$MPV_DIR" --tools "$FFMPEG_DIR"
 
       # Smoke checks on the package that was just made. They show what the installer does on a
       # clean runner; they are not a replacement for installing on a real machine.
@@ -411,7 +440,7 @@ jobs:
 
       - name: Package the development app (Windows)
         if: matrix.target == 'windows'
-        run: cargo xtask package --target windows --channel dev --out dist --libs "$MPV_DIR"
+        run: cargo xtask package --target windows --channel dev --out dist --libs "$MPV_DIR" --tools "$FFMPEG_DIR"
 
       - name: Check that the development installer exists
         run: |
