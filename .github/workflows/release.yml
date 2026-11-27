@@ -255,6 +255,11 @@ jobs:
             cargo build --locked --release -p vaio-desktop --features production
           fi
 
+      # The Windows app must be a GUI program, or it opens a console window next to the app.
+      - name: Check that the Windows app has no console (Windows)
+        if: matrix.target == 'windows'
+        run: cargo xtask check-pe --file target/release/vaio-desktop.exe --gui
+
       - name: Package (macOS)
         if: matrix.target == 'macos'
         run: |

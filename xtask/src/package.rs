@@ -8,6 +8,7 @@ pub(crate) mod license;
 mod macos;
 mod macos_libs;
 mod nsis;
+pub(crate) mod pe;
 #[cfg(test)]
 mod tests;
 
@@ -194,6 +195,24 @@ pub(crate) fn production_icon(root: &Path, file: &str) -> Result<PathBuf> {
         bail!("{} is missing; run `cargo xtask icons`", path.display());
     }
     Ok(path)
+}
+
+/// `cargo xtask check-pe`: fails unless the Windows executable at `file` is a GUI program.
+pub fn check_pe(file: &Path, gui: bool) -> Result<()> {
+    if !gui {
+        bail!("check-pe needs --gui: the only check is that the executable is a GUI program");
+    }
+    let bytes = std::fs::read(file).with_context(|| format!("reading {}", file.display()))?;
+    let subsystem = pe::pe_subsystem(&bytes)
+        .with_context(|| format!("reading the PE header of {}", file.display()))?;
+    if subsystem != 2 {
+        bail!(
+            "{} has PE subsystem {subsystem}, expected 2 (GUI): it would open a console window",
+            file.display()
+        );
+    }
+    println!("{}: PE subsystem 2 (GUI)", file.display());
+    Ok(())
 }
 
 /// Runs a tool and fails with its name and exit status when it does not succeed.

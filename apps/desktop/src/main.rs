@@ -1,3 +1,5 @@
+#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
+
 use gpui_kit::{AppContext, TitlebarOptions, WindowOptions};
 use std::{path::PathBuf, sync::Arc};
 use tokio::{runtime::Runtime, sync::mpsc};

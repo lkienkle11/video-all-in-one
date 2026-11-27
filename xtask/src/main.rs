@@ -51,6 +51,14 @@ enum Command {
         #[arg(long)]
         file: PathBuf,
     },
+    /// Fails unless the Windows executable is a GUI program (no console window).
+    CheckPe {
+        #[arg(long)]
+        file: PathBuf,
+        /// Requires the GUI subsystem.
+        #[arg(long)]
+        gui: bool,
+    },
     /// Builds and packs our own LGPL libmpv (see docs/RELEASING.md, "Our own libmpv").
     Libmpv {
         #[command(subcommand)]
@@ -132,6 +140,7 @@ fn main() -> Result<()> {
                 allow_gpl,
             },
         ),
+        Command::CheckPe { file, gui } => package::check_pe(&file, gui),
         Command::Libmpv { command } => libmpv::run(command),
         Command::Keygen { out } => keygen::run(&out),
         Command::Sign { file } => sign::run(&file),
