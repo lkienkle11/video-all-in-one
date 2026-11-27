@@ -1,5 +1,6 @@
 # Runs when a tag v* is pushed: checks the tag, tests and builds on every OS, packages, signs the
-# update artifacts, writes latest.json and publishes ONE GitHub Release.
+# update artifacts, writes latest.json and publishes the GitHub Release, then a second, separate
+# pre-release dev-v<version> with the development installers (never signed, never "latest").
 # The signing secret is available only to the signing step of the last job.
 name: Release
 
@@ -372,6 +373,49 @@ jobs:
           while ((Test-Path (Join-Path $dir 'video-all-in-one.exe')) -and ((Get-Date) -lt $deadline)) { Start-Sleep -Seconds 2 }
           if (Test-Path (Join-Path $dir 'video-all-in-one.exe')) { throw 'the app was not removed' }
 
+      # The development build: the same commit without the `production` feature (so it has its own
+      # name, data folder and icon, and never checks for updates). It is built after the production
+      # app was packaged and checked, because it overwrites target/*/release/vaio-desktop. Only an
+      # installer comes out of it, named video-all-in-one-<version>-dev-<platform>.<ext>.
+      - name: Build the development app
+        run: |
+          if [ "$RUNNER_OS" = Linux ]; then
+            export RUSTFLAGS="-L native=$LIBMPV_DIR/lib -C link-arg=-Wl,-rpath-link,$LIBMPV_DIR/lib -C link-arg=-Wl,-rpath,\$ORIGIN/../lib/video-all-in-one-dev"
+          fi
+          if [ -n "${{ matrix.rust_target }}" ]; then
+            cargo build --locked --release --target "${{ matrix.rust_target }}" -p vaio-desktop
+          else
+            cargo build --locked --release -p vaio-desktop
+          fi
+
+      - name: Check that the Windows development app has no console (Windows)
+        if: matrix.target == 'windows'
+        run: cargo xtask check-pe --file target/release/vaio-desktop.exe --gui
+
+      - name: Package the development app (macOS)
+        if: matrix.target == 'macos'
+        run: |
+          if [ -n "${{ matrix.rust_target }}" ]; then
+            cargo xtask package --target macos --channel dev --out dist --libmpv-dir "$LIBMPV_DIR" \
+              --arch "${{ matrix.arch }}" --binary "target/${{ matrix.rust_target }}/release/vaio-desktop"
+          else
+            cargo xtask package --target macos --channel dev --out dist --libmpv-dir "$LIBMPV_DIR"
+          fi
+
+      - name: Package the development app (Ubuntu)
+        if: matrix.target == 'ubuntu'
+        run: cargo xtask package --target ubuntu --channel dev --out dist --libmpv-dir "$LIBMPV_DIR"
+
+      - name: Package the development app (Windows)
+        if: matrix.target == 'windows'
+        run: cargo xtask package --target windows --channel dev --out dist --libs "$MPV_DIR"
+
+      - name: Check that the development installer exists
+        run: |
+          set -eu
+          ls dist/video-all-in-one-*-dev-*
+          test "$(ls dist/video-all-in-one-*-dev-* | wc -l)" -eq 1
+
       - name: Keep the installers and update artifacts
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -420,13 +464,17 @@ jobs:
           path: dist
 
       # The key is read from the environment by xtask and is never printed.
+      # Only the production files are signed: each name is built from the version, so the
+      # development installers (video-all-in-one-<version>-dev-...) can never be picked up.
       - name: Sign the update artifacts
         env:
           UPDATE_SIGNING_KEY: ${{ secrets.UPDATE_SIGNING_KEY }}
+          TAG: ${{ github.ref_name }}
         run: |
           set -eu
           for pattern in macos-aarch64.zip macos-x86_64.zip windows-x86_64.exe linux-x86_64.deb; do
-            file=$(ls dist/video-all-in-one-*-"$pattern")
+            file="dist/video-all-in-one-${TAG#v}-$pattern"
+            test -f "$file"
             cargo xtask sign --file "$file"
           done
 
@@ -447,11 +495,43 @@ jobs:
           jq -r '"## English\n\n" + .notes_en + "\n\n## Tiếng Việt\n\n" + .notes_vi' dist/latest.json > release-notes.md
 
       # A draft is filled first and published last, so nobody sees a release with missing files.
-      - name: Publish one GitHub Release
+      # The release holds no development file.
+      - name: Publish the GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
         run: |
-          gh release create "$TAG" dist/video-all-in-one-* dist/latest.json \
+          set -eu
+          files=()
+          for file in dist/video-all-in-one-*; do
+            case "$file" in
+              *-dev-*) ;;
+              *) files+=("$file") ;;
+            esac
+          done
+          gh release create "$TAG" "${files[@]}" dist/latest.json \
             --draft --verify-tag --title "Video All-in-One ${TAG#v}" --notes-file release-notes.md
           gh release edit "$TAG" --draft=false --latest
+
+      # The development pre-release is tagged dev-v<version>, not v<version>-dev: this workflow
+      # runs on every pushed tag v*, so a tag that starts with v would start it again. It holds
+      # only the development installers, is never "latest" (releases/latest/download/latest.json
+      # keeps pointing at the production release) and has no latest.json, so it never updates.
+      - name: Publish the development pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -eu
+          VERSION="${TAG#v}"
+          files=()
+          for file in dist/video-all-in-one-*-dev-*; do
+            test -f "$file"
+            files+=("$file")
+          done
+          # One installer per OS: macOS Apple Silicon, macOS Intel, Windows and Ubuntu.
+          test "${#files[@]}" -eq 4
+          gh release create "dev-v${VERSION}" "${files[@]}" \
+            --target "$GITHUB_SHA" --prerelease --latest=false \
+            --title "Video All-in-One ${VERSION} (development build)" \
+            --notes "A development build for testers, made from the same commit as v${VERSION}. It does not update itself and uses its own data folder, so it can be installed next to the production app. Install it by hand."

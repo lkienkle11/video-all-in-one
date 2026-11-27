@@ -19,12 +19,60 @@ use anyhow::{bail, Context, Result};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-/// The name users see.
-pub(crate) const APP_NAME: &str = "Video All-in-One";
-/// The executable name inside every package.
-pub(crate) const BINARY_NAME: &str = "video-all-in-one";
-/// The production bundle identifier (see `vaio_platform::channel`).
-pub(crate) const IDENTIFIER: &str = "app.videoallinone";
+use crate::release::latest_json::DEV_MARKER;
+use vaio_platform::channel::Channel;
+
+/// The build channel of a package (`--channel`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
+pub enum BuildChannel {
+    Production,
+    Dev,
+}
+
+impl From<BuildChannel> for Channel {
+    fn from(channel: BuildChannel) -> Channel {
+        match channel {
+            BuildChannel::Production => Channel::Production,
+            BuildChannel::Dev => Channel::Development,
+        }
+    }
+}
+
+/// What one package is: its channel, version and platform key.
+#[derive(Clone, Copy)]
+pub(crate) struct Release<'a> {
+    pub channel: Channel,
+    pub version: &'a str,
+    pub key: &'a str,
+}
+
+impl<'a> Release<'a> {
+    /// A production package.
+    #[cfg(test)]
+    pub(crate) fn production(version: &'a str, key: &'a str) -> Self {
+        Release {
+            channel: Channel::Production,
+            version,
+            key,
+        }
+    }
+}
+
+impl Release<'_> {
+    /// The name of this package's file with extension `ext`.
+    pub(crate) fn file_name(&self, ext: &str) -> String {
+        package_file_name(self.channel, self.version, self.key, ext)
+    }
+}
+
+/// The name of a staging folder: `stage-<os>`, with `-dev` for a development build, so a
+/// development package never clears the staged files of a production one.
+pub(crate) fn stage_name(channel: Channel, os: &str) -> String {
+    match channel {
+        Channel::Production => format!("stage-{os}"),
+        Channel::Development => format!("stage-{os}-dev"),
+    }
+}
 
 /// The operating system a package is built for. Each one can only be built on itself.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
@@ -45,6 +93,8 @@ pub struct Options {
     pub libmpv_dir: Option<PathBuf>,
     /// The CPU of a cross-compiled executable (`aarch64` or `x86_64`); this machine's when unset.
     pub arch: Option<String>,
+    /// `dev` builds the development installer only (no update artifact, never signed).
+    pub channel: BuildChannel,
     /// Lets GPL or non-free libraries into the package (local testing only).
     pub allow_gpl: bool,
 }
@@ -80,9 +130,26 @@ pub fn update_extension(platform_key: &str) -> Result<&'static str> {
         .with_context(|| format!("unknown platform key `{platform_key}`"))
 }
 
-/// `video-all-in-one-<version>-<platform_key>.<ext>`, the pattern `latest-json` matches.
-pub fn package_file_name(version: &str, platform_key: &str, ext: &str) -> String {
-    format!("{FILE_PREFIX}{version}-{platform_key}.{ext}")
+/// `video-all-in-one-<version>-<platform_key>.<ext>`, the pattern `latest-json` matches; a
+/// development build has `-dev-` between the version and the platform key, which it ignores.
+pub fn package_file_name(channel: Channel, version: &str, platform_key: &str, ext: &str) -> String {
+    match channel {
+        Channel::Production => format!("{FILE_PREFIX}{version}-{platform_key}.{ext}"),
+        Channel::Development => {
+            format!("{FILE_PREFIX}{version}{DEV_MARKER}{platform_key}.{ext}")
+        }
+    }
+}
+
+/// The extension of the file that must exist when packaging ends: the update artifact of a
+/// production build, the installer of a development build (which has no update artifact).
+fn final_extension(channel: Channel, target: Target, platform_key: &str) -> Result<&'static str> {
+    match (channel, target) {
+        (Channel::Production, _) => update_extension(platform_key),
+        (Channel::Development, Target::Macos) => Ok("dmg"),
+        (Channel::Development, Target::Windows) => Ok("exe"),
+        (Channel::Development, Target::Ubuntu) => Ok("deb"),
+    }
 }
 
 /// The notes of `version` in `changelog`, which must have both languages and no placeholder.
@@ -127,7 +194,7 @@ pub fn run(root: &Path, options: &Options) -> Result<()> {
         .unwrap_or_else(|| root.join("target/release").join(exe));
     if !binary.is_file() {
         bail!(
-            "{} does not exist; build it first with `cargo build --release -p vaio-desktop --features production`",
+            "{} does not exist; build it first with `cargo build --release -p vaio-desktop --features production` (a development package: without `--features production`)",
             binary.display()
         );
     }
@@ -140,13 +207,18 @@ pub fn run(root: &Path, options: &Options) -> Result<()> {
     // folder, so a relative `--out dist` made it look for `dist\dist\icon.ico`.
     let out = absolute_out(&out)?;
     let key = platform_key(options.target, effective_arch(options.arch.as_deref()))?;
+    let channel = Channel::from(options.channel);
+    let release = Release {
+        channel,
+        version: &version,
+        key,
+    };
     match options.target {
         Target::Macos => macos::build(
             root,
             &binary,
             &out,
-            &version,
-            key,
+            &release,
             options.allow_gpl,
             options.libmpv_dir.as_deref(),
         )?,
@@ -154,8 +226,7 @@ pub fn run(root: &Path, options: &Options) -> Result<()> {
             root,
             &binary,
             &out,
-            &version,
-            key,
+            &release,
             options.libs.as_deref(),
             options.allow_gpl,
         )?,
@@ -168,8 +239,7 @@ pub fn run(root: &Path, options: &Options) -> Result<()> {
                 root,
                 &binary,
                 &out,
-                &version,
-                key,
+                &release,
                 &deb::Bundle {
                     libmpv_dir,
                     allow_gpl: options.allow_gpl,
@@ -177,20 +247,32 @@ pub fn run(root: &Path, options: &Options) -> Result<()> {
             )?
         }
     }
-    let artifact = out.join(package_file_name(&version, key, update_extension(key)?));
+    let artifact = out.join(release.file_name(final_extension(channel, options.target, key)?));
     if !artifact.is_file() {
         bail!(
             "packaging finished but {} was not produced",
             artifact.display()
         );
     }
-    println!("update artifact: {}", artifact.display());
+    match channel {
+        Channel::Production => println!("update artifact: {}", artifact.display()),
+        Channel::Development => println!("development installer: {}", artifact.display()),
+    }
     Ok(())
 }
 
-/// The committed production icon `file`; the packagers refuse to build without it.
-pub(crate) fn production_icon(root: &Path, file: &str) -> Result<PathBuf> {
-    let path = crate::icons::generated_path(root, crate::icons::Variant::Production, file);
+/// Where the committed icon `file` of `channel` is.
+pub(crate) fn icon_path(root: &Path, channel: Channel, file: &str) -> PathBuf {
+    let variant = match channel {
+        Channel::Production => crate::icons::Variant::Production,
+        Channel::Development => crate::icons::Variant::Development,
+    };
+    crate::icons::generated_path(root, variant, file)
+}
+
+/// The committed icon `file` of `channel`; the packagers refuse to build without it.
+pub(crate) fn channel_icon(root: &Path, channel: Channel, file: &str) -> Result<PathBuf> {
+    let path = icon_path(root, channel, file);
     if !path.is_file() {
         bail!("{} is missing; run `cargo xtask icons`", path.display());
     }

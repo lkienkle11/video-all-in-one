@@ -184,3 +184,42 @@ fn normal_github_release_url_is_accepted() {
     let value: serde_json::Value = serde_json::from_str(&text).unwrap();
     assert_eq!(value["assets"].as_object().unwrap().len(), 4);
 }
+
+/// The development build of `ARTIFACTS[index]`: the same name with `-dev` after the version.
+fn dev_name(index: usize) -> String {
+    ARTIFACTS[index].replace("0.1.0-", "0.1.0-dev-")
+}
+
+#[test]
+fn latest_json_ignores_dev_artifacts() {
+    let root = Fixture::new();
+    full_set(&root);
+    for index in 0..ARTIFACTS.len() {
+        // Dev files are never signed; they must not be read, checked or listed.
+        fs::write(root.join(dev_name(index)), b"dev build").unwrap();
+    }
+    fs::write(
+        root.join("video-all-in-one-0.1.0-dev-macos-aarch64.dmg"),
+        b"d",
+    )
+    .unwrap();
+
+    let text = build(&root).unwrap();
+
+    let value: serde_json::Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(value["assets"].as_object().unwrap().len(), 4);
+    assert!(!text.contains("-dev-"), "{text}");
+}
+
+#[test]
+fn latest_json_fails_when_a_production_artifact_is_missing_even_if_dev_exists() {
+    let root = Fixture::new();
+    artifact(&root, ARTIFACTS[3], b"linux");
+    fs::write(root.join(dev_name(2)), b"dev build").unwrap();
+
+    let error = build_requiring(&root, &["windows-x86_64", "linux-x86_64"]).unwrap_err();
+
+    let text = format!("{error:#}");
+    assert!(text.contains("windows-x86_64"), "{text}");
+    assert!(text.contains("no artifact"), "{text}");
+}

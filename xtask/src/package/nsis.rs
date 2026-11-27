@@ -5,11 +5,12 @@
 //! and source URLs from the build's `LICENSES` folder live in `third-party`.
 
 use super::license::{bundled_tools, check_bundle_license};
-use super::{package_file_name, production_icon, run_tool, APP_NAME, BINARY_NAME, IDENTIFIER};
+use super::{channel_icon, run_tool, stage_name, Release};
 use anyhow::{bail, Context, Result};
 use std::fs;
 use std::path::Path;
 use std::process::Command;
+use vaio_platform::channel::Channel;
 
 /// Quotes `text` for an NSIS string: `$` and `"` are escaped, line breaks are refused.
 pub(super) fn quote(text: &str) -> Result<String> {
@@ -38,6 +39,7 @@ fn check_file_name(name: &str) -> Result<()> {
 /// executable first; `output` is the installer path. Only the dynamic values go through
 /// [`quote`]; the rest is fixed text that uses NSIS variables on purpose.
 pub(super) fn installer_script(
+    channel: Channel,
     version: &str,
     output: &Path,
     source_dir: &Path,
@@ -47,15 +49,16 @@ pub(super) fn installer_script(
     for file in files {
         check_file_name(file.strip_prefix("third-party\\").unwrap_or(file))?;
     }
-    let exe = format!("$INSTDIR\\{BINARY_NAME}.exe");
-    let shortcut = format!("$SMPROGRAMS\\{APP_NAME}.lnk");
-    let key = format!("\"Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\{IDENTIFIER}\"");
+    let (app_name, identifier) = (channel.app_name(), channel.identifier());
+    let exe = format!("$INSTDIR\\{}.exe", channel.binary_name());
+    let shortcut = format!("$SMPROGRAMS\\{app_name}.lnk");
+    let key = format!("\"Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\{identifier}\"");
     let mut lines: Vec<String> = vec![
         "Unicode true".into(),
         "RequestExecutionLevel user".into(),
-        format!("Name \"{APP_NAME}\""),
+        format!("Name \"{app_name}\""),
         format!("OutFile {}", quote(&output.display().to_string())?),
-        format!("InstallDir \"$LOCALAPPDATA\\Programs\\{APP_NAME}\""),
+        format!("InstallDir \"$LOCALAPPDATA\\Programs\\{app_name}\""),
         "SetCompressor /SOLID lzma".into(),
         format!("Icon {}", quote(&icon.display().to_string())?),
         format!("UninstallIcon {}", quote(&icon.display().to_string())?),
@@ -97,7 +100,7 @@ pub(super) fn installer_script(
     lines.extend([
         "  WriteUninstaller \"$INSTDIR\\uninstall.exe\"".to_string(),
         format!("  CreateShortcut \"{shortcut}\" \"{exe}\""),
-        format!("  WriteRegStr HKCU {key} \"DisplayName\" \"{APP_NAME}\""),
+        format!("  WriteRegStr HKCU {key} \"DisplayName\" \"{app_name}\""),
         format!("  WriteRegStr HKCU {key} \"DisplayVersion\" {}", quote(version)?),
         format!("  WriteRegStr HKCU {key} \"InstallLocation\" \"$INSTDIR\""),
         format!("  WriteRegStr HKCU {key} \"UninstallString\" \"$\\\"$INSTDIR\\uninstall.exe$\\\"\""),
@@ -142,16 +145,18 @@ pub(super) fn build(
     root: &Path,
     binary: &Path,
     out: &Path,
-    version: &str,
-    key: &str,
+    release: &Release,
     libs: Option<&Path>,
     allow_gpl: bool,
 ) -> Result<()> {
+    let Release {
+        channel, version, ..
+    } = *release;
     let Some(libs) = libs else {
         bail!("--libs is required on Windows: the folder with libmpv-2.dll and the DLLs it needs");
     };
     let tools = bundled_tools(libs, true, allow_gpl)?;
-    let stage = out.join("stage-windows");
+    let stage = out.join(stage_name(channel, "windows"));
     if stage.exists() {
         fs::remove_dir_all(&stage).with_context(|| format!("clearing {}", stage.display()))?;
     }
@@ -166,7 +171,7 @@ pub(super) fn build(
         )
         .with_context(|| format!("copying {}", tool.display()))?;
     }
-    let exe_name = format!("{BINARY_NAME}.exe");
+    let exe_name = format!("{}.exe", channel.binary_name());
     fs::copy(binary, stage.join(&exe_name))
         .with_context(|| format!("copying {}", binary.display()))?;
     let mut files = vec![exe_name];
@@ -212,15 +217,15 @@ pub(super) fn build(
     }
     licenses.sort();
     files.extend(licenses);
-    let installer = out.join(package_file_name(version, key, "exe"));
+    let installer = out.join(release.file_name("exe"));
     if installer.exists() {
         fs::remove_file(&installer)?;
     }
     // The icon sits next to the script, outside the folder of installed files.
     let icon = out.join("icon.ico");
-    let icon_source = production_icon(root, "icon.ico")?;
+    let icon_source = channel_icon(root, channel, "icon.ico")?;
     fs::copy(&icon_source, &icon).with_context(|| format!("copying {}", icon_source.display()))?;
-    let script = installer_script(version, &installer, &stage, &files, &icon)?;
+    let script = installer_script(channel, version, &installer, &stage, &files, &icon)?;
     let script_path = out.join("installer.nsi");
     fs::write(&script_path, script)
         .with_context(|| format!("writing {}", script_path.display()))?;
@@ -233,9 +238,11 @@ pub(super) fn build(
 mod tests {
     use super::{installer_script, quote};
     use std::path::Path;
+    use vaio_platform::channel::Channel;
 
     fn script() -> String {
         installer_script(
+            Channel::Production,
             "0.1.0",
             Path::new("C:\\out\\video-all-in-one-0.1.0-windows-x86_64.exe"),
             Path::new("C:\\out\\stage"),
@@ -324,6 +331,7 @@ mod tests {
     #[test]
     fn script_refuses_a_file_name_that_could_break_out_of_the_string() {
         let result = installer_script(
+            Channel::Production,
             "0.1.0",
             Path::new("out.exe"),
             Path::new("stage"),

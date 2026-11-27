@@ -1,5 +1,6 @@
 use super::{info_plist, resolve_in_build};
 use std::path::Path;
+use vaio_platform::channel::Channel;
 
 #[test]
 fn libraries_resolve_only_inside_the_libmpv_build() {
@@ -31,7 +32,7 @@ fn libraries_resolve_only_inside_the_libmpv_build() {
 
 #[test]
 fn info_plist_names_the_production_app_and_its_minimum_system() {
-    let plist = info_plist("0.1.0", "13.0");
+    let plist = info_plist(Channel::Production, "0.1.0", "13.0");
     for expected in [
         "<key>CFBundleIdentifier</key>\n\t<string>app.videoallinone</string>",
         "<key>CFBundleExecutable</key>\n\t<string>video-all-in-one</string>",
@@ -53,5 +54,5 @@ fn info_plist_names_the_production_app_and_its_minimum_system() {
 
 #[test]
 fn info_plist_escapes_text_it_embeds() {
-    assert!(info_plist("1.0.0<&>", "13.0").contains("1.0.0&lt;&amp;&gt;"));
+    assert!(info_plist(Channel::Production, "1.0.0<&>", "13.0").contains("1.0.0&lt;&amp;&gt;"));
 }

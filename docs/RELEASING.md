@@ -16,7 +16,31 @@ Status of this document: the macOS packaging was run on a real Mac (Apple Silico
 | `<artifact>.sig` | | Ed25519 signature of the SHA-256 of the artifact |
 | `latest.json` | | Update manifest, schema 1, with both languages of the notes |
 
-The file names follow `video-all-in-one-<version>-<platform_key>.<ext>`; `cargo xtask latest-json` finds the artifacts by this pattern.
+The file names follow `video-all-in-one-<version>-<platform_key>.<ext>`; `cargo xtask latest-json` finds the artifacts by this pattern. The development build's files, `video-all-in-one-<version>-dev-<platform_key>.<ext>`, are never part of this release (see "The development build and the dev release").
+
+## The development build and the dev release
+
+Every release also builds the development app (no `production` feature) from the same commit, and publishes it as a second, separate GitHub pre-release. It is for testers.
+
+| | Production | Development |
+|---|---|---|
+| App name | `Video All-in-One` | `Video All-in-One (Dev)` |
+| Identifier and data folder | `app.videoallinone` | `app.videoallinone.dev` |
+| Executable and package name | `video-all-in-one` | `video-all-in-one-dev` |
+| Icon | `assets/icons/generated/production/` | `assets/icons/generated/development/` (amber DEV band) |
+| Windows | `Programs\Video All-in-One`, uninstall key `app.videoallinone` | `Programs\Video All-in-One (Dev)`, uninstall key `app.videoallinone.dev`, own Start-menu entry |
+| macOS | `Video All-in-One.app` | `Video All-in-One (Dev).app` |
+| Ubuntu | package `video-all-in-one`, `/usr/lib/video-all-in-one` | package `video-all-in-one-dev`, `/usr/lib/video-all-in-one-dev`, own desktop entry |
+| Release file | `video-all-in-one-X.Y.Z-<platform_key>.<ext>` | `video-all-in-one-X.Y.Z-dev-<platform_key>.<ext>` |
+| Updates | checks and installs updates | never checks for updates |
+
+So both can be installed side by side with separate settings and data.
+
+- **Build by hand:** `cargo build --release -p vaio-desktop` (without `--features production`), then `cargo xtask package --channel dev --target <os> ...` (the default is `--channel production`). On Ubuntu link with the run path `$ORIGIN/../lib/video-all-in-one-dev`. A dev package is an installer only (`.dmg`, `.exe`, `.deb`): no update zip, and it is never signed with the update key.
+- **Tag and release:** the dev release is the pre-release `dev-vX.Y.Z` (title `Video All-in-One X.Y.Z (development build)`), created by the `sign and publish` job after the production release. The tag is `dev-vX.Y.Z` and not `vX.Y.Z-dev` because the workflow runs on every pushed tag `v*`; a tag starting with `v` would start it again. It is created with `--prerelease --latest=false`, so it is never the "latest" release: `releases/latest/download/latest.json` keeps pointing at the production release. It has no `latest.json`.
+- **`latest-json` and signing ignore every `-dev-` file.** The production release never contains one, and `--require` still fails when a production artifact is missing even if its dev file exists.
+- **How testers install it:** open the Releases page, pick the pre-release `dev-vX.Y.Z`, download the file for the OS (`.dmg`, `.exe` or `.deb`) and install it by hand like any first install (see "First-run warnings"). It does not update itself: to get a newer dev build, install the next `dev-v...` pre-release.
+- **Verify** (not yet run on a real release): a manual `workflow_dispatch` run builds both sets of artifacts and publishes nothing; after a real release check that `dev-vX.Y.Z` is a pre-release with four files and that `releases/latest/download/latest.json` still resolves to the production release.
 
 ## One-time setup
 
@@ -88,7 +112,7 @@ Release packages bundle only LGPL builds of libmpv and FFmpeg. Homebrew's builds
 
 ## App icons
 
-The icons come from two SVG files: `assets/icons/app-icon.svg` (production) and `assets/icons/app-icon-dev.svg` (development, the same icon with an amber DEV band). To replace them, edit the SVGs (1024 x 1024, no text elements), run `cargo xtask icons` and commit the changed files in `assets/icons/generated/`. CI runs `cargo xtask icons --check` on Ubuntu and fails when the committed files differ from what the SVGs produce. The packagers use `generated/production/`: `icon.icns` becomes `AppIcon.icns` in the macOS bundle, `icon.ico` is the icon of the Windows installer and uninstaller, and `icon.png` is installed in the `.deb` as the `hicolor` 512x512 icon. The window icon of a running app is not set yet (GPUI only supports it on X11 and needs the `image` crate for it).
+The icons come from two SVG files: `assets/icons/app-icon.svg` (production) and `assets/icons/app-icon-dev.svg` (development, the same icon with an amber DEV band). To replace them, edit the SVGs (1024 x 1024, no text elements), run `cargo xtask icons` and commit the changed files in `assets/icons/generated/`. CI runs `cargo xtask icons --check` on Ubuntu and fails when the committed files differ from what the SVGs produce. The production packagers use `generated/production/` and the dev packagers (`--channel dev`) use `generated/development/`: `icon.icns` becomes `AppIcon.icns` in the macOS bundle, `icon.ico` is the icon of the Windows installer and uninstaller, and `icon.png` is installed in the `.deb` as the `hicolor` 512x512 icon. The window icon of a running app is not set yet (GPUI only supports it on X11 and needs the `image` crate for it).
 
 ## First-run warnings
 

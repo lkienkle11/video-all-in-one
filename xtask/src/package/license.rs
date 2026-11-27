@@ -218,8 +218,7 @@ mod tests {
                 &dir.0,
                 &binary,
                 &dir.0.join("out"),
-                "1.2.3",
-                "windows-x86_64",
+                &super::super::Release::production("1.2.3", "windows-x86_64"),
                 Some(&libs),
                 false,
             )
@@ -240,8 +239,7 @@ mod tests {
             &dir.0,
             &dir.0.join("app"),
             &dir.0.join("out"),
-            "1.2.3",
-            "windows-x86_64",
+            &super::super::Release::production("1.2.3", "windows-x86_64"),
             Some(&dir.0),
             false,
         )
