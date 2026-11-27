@@ -1,6 +1,6 @@
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
-use gpui_kit::{AppContext, TitlebarOptions, WindowOptions};
+use gpui_kit::AppContext;
 use std::{path::PathBuf, sync::Arc};
 use tokio::{runtime::Runtime, sync::mpsc};
 use vaio_core::i18n::{tr, Language, Text};
@@ -15,6 +15,7 @@ use vaio_core::{
 use vaio_desktop::app::AppView;
 use vaio_desktop::state::{AppState, ToolSearch};
 use vaio_desktop::update_wiring::UpdateSetup;
+use vaio_desktop::window_options::main_window_options;
 use vaio_media::{
     export_runner::{FfmpegExportRunner, ToolPathsCell},
     ffmpeg::FfmpegPaths,
@@ -49,13 +50,7 @@ fn main() {
             let store = AppView::settings_store(channel);
             let language = store.read().language.unwrap_or(Language::English);
 
-            let options = WindowOptions {
-                titlebar: Some(TitlebarOptions {
-                    title: Some(tr(language, Text::AppTitle).into()),
-                    ..Default::default()
-                }),
-                ..Default::default()
-            };
+            let options = main_window_options(channel, tr(language, Text::AppTitle).into());
             if let Err(error) = gpui_kit::open_window(options, cx, |window, cx| {
                 let state = cx.new(|_| state);
                 let updates = match vaio_desktop::app::data_base() {
