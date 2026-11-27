@@ -313,6 +313,8 @@ fn concat_list(pieces: &[PathBuf]) -> String {
         .collect()
 }
 
-#[cfg(test)]
+// Uses the Unix-path fixtures, like `media_planner_tests`, so it does not build on Windows. The
+// picker takes the OS as a parameter, so these tests still check its Windows rules on Unix.
+#[cfg(all(test, unix))]
 #[path = "media_planner_encoder_tests.rs"]
 mod encoder_tests;
