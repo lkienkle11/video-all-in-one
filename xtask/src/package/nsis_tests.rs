@@ -29,6 +29,16 @@ fn script_uses_the_icon_for_the_installer_and_the_uninstaller() {
 }
 
 #[test]
+fn script_inserts_get_parent_at_global_scope_before_its_first_use() {
+    let script = script();
+    let include = at(&script, "!include FileFunc.nsh\n");
+    let insert = at(&script, "!insertmacro GetParent\n");
+    let section = at(&script, "Section \"Install\"");
+    let first_use = at(&script, "${GetParent}");
+    assert!(include < insert && insert < section && section < first_use);
+}
+
+#[test]
 fn quote_escapes_dollar_and_quote_and_refuses_line_breaks() {
     assert_eq!(quote("a $b \"c\"").unwrap(), "\"a $$b $\\\"c$\\\"\"");
     assert!(quote("a\nb").is_err());
@@ -151,10 +161,18 @@ fn script_deletes_exactly_the_files_listed_in_the_previous_manifest() {
     let manifest = "$INSTDIR\\install-manifest.txt";
     let exists = at(&script, &format!("IfFileExists \"{manifest}\""));
     let read = at(&script, &format!("FileOpen $R2 \"{manifest}\" r"));
-    let line = at(&script, "FileRead $R2 $R3");
+    // The backup reads its own manifest first; inspect the old-file deletion loop.
+    let line = read + at(&script[read..], "FileRead $R2 $R3");
     let delete = at(&script, "Delete \"$INSTDIR\\$R3\"");
     let first_file = at(&script, "File \"stage\\");
     assert!(exists < read && read < line && line < delete && delete < first_file);
+    assert!(at(&script, "waitdone:") < exists);
+    assert!(
+        at(
+            &script,
+            "CopyFiles /SILENT /FILESONLY \"$INSTDIR\\$R3\" \"$R8\""
+        ) < delete
+    );
     assert_eq!(
         script.matches("Delete \"$INSTDIR\\$R3\"").count(),
         1,
@@ -220,4 +238,152 @@ fn uninstaller_deletes_the_manifest() {
     let uninstall = at(&script, "Section \"Uninstall\"");
     let delete = at(&script, "Delete \"$INSTDIR\\install-manifest.txt\"");
     assert!(delete > uninstall);
+}
+
+#[test]
+fn script_copies_the_old_manifest_files_to_previous_before_writing() {
+    let script = upgrade_script();
+    let backup = at(
+        &script,
+        "CopyFiles /SILENT /FILESONLY \"$INSTDIR\\$R3\" \"$R8\"",
+    );
+    assert!(at(&script, "waitdone:") < backup);
+    assert!(backup < at(&script, "Delete \"$INSTDIR\\$R3\""));
+    assert!(backup < at(&script, "File \"stage\\"));
+    assert!(script.contains(
+        "CopyFiles /SILENT /FILESONLY \"$INSTDIR\\install-manifest.txt\" \"$INSTDIR\\.previous\""
+    ));
+    assert!(
+        script.contains("${GetParent} \"$INSTDIR\\.previous\\$R3\" $R8\n  CreateDirectory \"$R8\"")
+    );
+    for prefix in ["backup", "old", "restore", "cleanup"] {
+        for guard in [
+            "StrCmp $R3 \"\"",
+            "StrCmp $R6 \"\\\"",
+            "StrCmp $R6 \"/\"",
+            "StrCmp $R6 \":\"",
+            "StrCmp $R7 \".\"",
+        ] {
+            assert!(
+                script.contains(&format!("{guard} {prefix}loop")),
+                "{prefix}: {guard}"
+            );
+        }
+    }
+}
+
+#[test]
+fn script_restores_the_previous_files_when_a_step_fails() {
+    let script = upgrade_script();
+    let failure = &script[at(&script, "Function .onInstFailed")..];
+    assert!(failure.contains("StrCmp $UpdateWriting 1 0 reporterror"));
+    let remove = at(failure, "Delete \"$INSTDIR\\third-party\\SOURCES.txt\"");
+    let read = at(
+        failure,
+        "FileOpen $R2 \"$INSTDIR\\.previous\\install-manifest.txt\" r",
+    );
+    let restore = at(
+        failure,
+        "CopyFiles /SILENT /FILESONLY \"$INSTDIR\\.previous\\$R3\" \"$R8\"",
+    );
+    assert!(remove < read && read < restore);
+    assert!(failure.contains(
+        "CopyFiles /SILENT /FILESONLY \"$INSTDIR\\.previous\\install-manifest.txt\" \"$INSTDIR\""
+    ));
+    assert!(!failure.contains("Delete \"$INSTDIR\\.previous"));
+    let install = &script[..at(&script, "Section \"Uninstall\"")];
+    for (index, line) in install
+        .lines()
+        .enumerate()
+        .filter(|(_, l)| l.trim_start().starts_with("File \""))
+    {
+        let lines: Vec<_> = install.lines().collect();
+        assert_eq!(lines[index - 1].trim(), "ClearErrors", "{line}");
+        assert_eq!(lines[index + 1].trim(), "IfErrors 0 +2", "{line}");
+        assert_eq!(
+            lines[index + 2].trim(),
+            "Abort \"$UpdateFailure\"",
+            "{line}"
+        );
+    }
+    assert!(install.contains("CopyFiles /SILENT /FILESONLY \"$INSTDIR\\$R3\" \"$R8\"\n  IfErrors 0 +2\n  Abort \"$UpdateFailure\""));
+    assert!(at(install, "backupdone:") < at(install, "File \"stage\\"));
+}
+
+#[test]
+fn script_writes_update_error_txt_in_the_data_folder_on_failure() {
+    let script = upgrade_script();
+    let failure = &script[at(&script, "Function .onInstFailed")..];
+    assert!(failure.contains("CreateDirectory \"$APPDATA\\app.videoallinone\""));
+    assert!(failure.contains("FileOpen $R2 \"$APPDATA\\app.videoallinone\\update-error.txt\" w"));
+    assert!(failure.contains("The update could not be completed.$\\r$\\n$\\r$\\nWhat failed: $UpdateFailure$\\r$\\nThe previous app version is at: $INSTDIR\\.previous$\\r$\\n"));
+    assert!(failure.contains("FileClose $R2"));
+}
+
+#[test]
+fn script_deletes_previous_file_by_file_on_success() {
+    let script = upgrade_script();
+    let success = script[at(&script, "Function .onInstSuccess")..]
+        .split("FunctionEnd")
+        .next()
+        .unwrap();
+    let read = at(
+        success,
+        "FileOpen $R2 \"$INSTDIR\\.previous\\install-manifest.txt\" r",
+    );
+    let delete = at(success, "Delete \"$INSTDIR\\.previous\\$R3\"");
+    let manifest = at(
+        success,
+        "Delete \"$INSTDIR\\.previous\\install-manifest.txt\"",
+    );
+    let directory = at(success, "RMDir \"$INSTDIR\\.previous\"");
+    assert!(read < delete && delete < manifest && manifest < directory);
+    assert!(directory < at(success, "IfSilent"));
+    assert!(success.contains("Exec '\"$INSTDIR\\video-all-in-one.exe\"'"));
+}
+
+#[test]
+fn script_never_removes_a_folder_tree_for_previous() {
+    let script = upgrade_script();
+    assert!(
+        script.contains("RMDir \"$INSTDIR\\.previous\""),
+        "previous cleanup is missing"
+    );
+    assert!(!script.to_ascii_lowercase().contains("rmdir /r"));
+}
+
+#[test]
+fn fresh_install_skips_the_backup() {
+    let script = upgrade_script();
+    let guard = at(
+        &script,
+        "IfFileExists \"$INSTDIR\\install-manifest.txt\" 0 backupdone",
+    );
+    assert!(guard < at(&script, "CreateDirectory \"$INSTDIR\\.previous\""));
+    assert!(at(&script, "StrCpy $UpdateWriting 1") < at(&script, "backupdone:"));
+    let success = &script[at(&script, "Function .onInstSuccess")..];
+    assert!(success.contains("StrCmp $UpdateBackup 1 0 cleanupdone"));
+    let failure = &script[at(&script, "Function .onInstFailed")..];
+    assert!(failure.contains("StrCmp $UpdateBackup 1 0 faileddone"));
+}
+
+#[test]
+fn data_folder_in_the_script_matches_the_apps_data_folder_for_both_channels() {
+    for channel in [Channel::Production, Channel::Development] {
+        let script = installer_script(
+            channel,
+            "1.2.3",
+            Path::new("out.exe"),
+            Path::new("stage"),
+            &[format!("{}.exe", channel.binary_name())],
+            Path::new("icon.ico"),
+        )
+        .unwrap();
+        let data = vaio_platform::paths::data_dir(channel, Path::new("$APPDATA"));
+        assert_eq!(data.file_name().unwrap(), channel.identifier());
+        assert!(script.contains(&format!(
+            "FileOpen $R2 \"$APPDATA\\{}\\update-error.txt\" w",
+            data.file_name().unwrap().to_str().unwrap()
+        )));
+    }
 }

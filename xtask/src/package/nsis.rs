@@ -64,56 +64,54 @@ fn wait_for_the_executable(exe: &str) -> Vec<String> {
     .into()
 }
 
-/// Deletes the files the previous install listed in its manifest, one `Delete` per line,
-/// never a folder tree. An entry is skipped (never an error) when it is empty, starts with
-/// a path separator, or holds a `:` or `..`, so nothing outside `$INSTDIR` can be reached.
-/// A first install, or an upgrade from a version that wrote no manifest, deletes nothing.
-fn delete_the_previous_files() -> Vec<String> {
-    let manifest = format!("$INSTDIR\\{MANIFEST}");
-    [
-        format!("  IfFileExists \"{manifest}\" 0 olddone"),
-        "  ClearErrors".into(),
-        format!("  FileOpen $R2 \"{manifest}\" r"),
-        "  IfErrors olddone".into(),
-        "  oldloop:".into(),
-        "  ClearErrors".into(),
-        "  FileRead $R2 $R3".into(),
-        "  IfErrors oldclose".into(),
-        "  trimloop:".into(),
-        "  StrCpy $R4 $R3 1 -1".into(),
-        "  StrCmp $R4 \"$\\n\" trimcut".into(),
-        "  StrCmp $R4 \"$\\r\" trimcut".into(),
-        "  Goto trimmed".into(),
-        "  trimcut:".into(),
-        "  StrCpy $R3 $R3 -1".into(),
-        "  Goto trimloop".into(),
-        "  trimmed:".into(),
-        "  StrCmp $R3 \"\" oldloop".into(),
-        "  StrCpy $R6 $R3 1".into(),
-        "  StrCmp $R6 \"\\\" oldloop".into(),
-        "  StrCmp $R6 \"/\" oldloop".into(),
-        "  StrCpy $R5 0".into(),
-        "  scanloop:".into(),
-        "  StrCpy $R6 $R3 1 $R5".into(),
-        "  StrCmp $R6 \"\" scandone".into(),
-        "  StrCmp $R6 \":\" oldloop".into(),
-        "  StrCmp $R6 \".\" 0 scannext".into(),
-        "  IntOp $R7 $R5 + 1".into(),
-        "  StrCpy $R7 $R3 1 $R7".into(),
-        "  StrCmp $R7 \".\" oldloop".into(),
-        "  scannext:".into(),
-        "  IntOp $R5 $R5 + 1".into(),
-        "  Goto scanloop".into(),
-        "  scandone:".into(),
-        "  Delete \"$INSTDIR\\$R3\"".into(),
-        "  Goto oldloop".into(),
-        "  oldclose:".into(),
-        "  FileClose $R2".into(),
-        "  RMDir \"$INSTDIR\\bin\"".into(),
-        "  RMDir \"$INSTDIR\\third-party\"".into(),
-        "  olddone:".into(),
-    ]
-    .into()
+/// Every manifest operation shares the same path guards; each loop owns its labels.
+/// Callers supply the `done` label, so their final steps run only after reading the list.
+fn manifest_loop(prefix: &str, manifest: &str, operation: &str) -> String {
+    let labels = if prefix == "old" { "" } else { prefix };
+    format!(
+        r#"  ClearErrors
+  FileOpen $R2 "{manifest}" r
+  IfErrors {prefix}done
+  {prefix}loop:
+  ClearErrors
+  FileRead $R2 $R3
+  IfErrors {prefix}close
+  {labels}trimloop:
+  StrCpy $R4 $R3 1 -1
+  StrCmp $R4 "$\n" {labels}trimcut
+  StrCmp $R4 "$\r" {labels}trimcut
+  Goto {labels}trimmed
+  {labels}trimcut:
+  StrCpy $R3 $R3 -1
+  Goto {labels}trimloop
+  {labels}trimmed:
+  StrCmp $R3 "" {prefix}loop
+  StrCpy $R6 $R3 1
+  StrCmp $R6 "\" {prefix}loop
+  StrCmp $R6 "/" {prefix}loop
+  StrCpy $R5 0
+  {labels}scanloop:
+  StrCpy $R6 $R3 1 $R5
+  StrCmp $R6 "" {labels}scandone
+  StrCmp $R6 ":" {prefix}loop
+  StrCmp $R6 "." 0 {labels}scannext
+  IntOp $R7 $R5 + 1
+  StrCpy $R7 $R3 1 $R7
+  StrCmp $R7 "." {prefix}loop
+  {labels}scannext:
+  IntOp $R5 $R5 + 1
+  Goto {labels}scanloop
+  {labels}scandone:
+{operation}
+  Goto {prefix}loop
+  {prefix}close:
+  FileClose $R2"#
+    )
+}
+
+/// Record a precise failure before any operation can abort, including an NSIS `File`.
+fn checked(operation: &str, what: &str) -> String {
+    format!("  StrCpy $UpdateFailure \"{what}\"\n  ClearErrors\n{operation}\n  IfErrors 0 +2\n  Abort \"$UpdateFailure\"")
 }
 
 /// Writes the manifest of the files this install put in `$INSTDIR`, not the manifest itself
@@ -158,6 +156,7 @@ pub(super) fn installer_script(
     let key = format!("\"Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\{identifier}\"");
     let mut lines: Vec<String> = vec![
         "Unicode true".into(),
+        "!include FileFunc.nsh\n!insertmacro GetParent\nVar UpdateBackup\nVar UpdateWriting\nVar UpdateFailure".into(),
         "RequestExecutionLevel user".into(),
         format!("Name \"{app_name}\""),
         format!("OutFile {}", quote(&output.display().to_string())?),
@@ -173,7 +172,23 @@ pub(super) fn installer_script(
         "Section \"Install\"".into(),
     ];
     lines.extend(wait_for_the_executable(&exe));
-    lines.extend(delete_the_previous_files());
+    let previous = "$INSTDIR\\.previous";
+    let old_manifest = format!("$INSTDIR\\{MANIFEST}");
+    let backup_manifest = format!("{previous}\\{MANIFEST}");
+    lines.push(format!("  IfFileExists \"{old_manifest}\" 0 backupdone\n  IfFileExists \"{previous}\\*.*\" 0 +2\n  Abort \"A previous update backup already exists at {previous}.\""));
+    lines.push("  StrCpy $UpdateBackup 1".into());
+    lines.push(checked(&format!("  CreateDirectory \"{previous}\"\n  CopyFiles /SILENT /FILESONLY \"{old_manifest}\" \"{previous}\""), "Backing up the install manifest"));
+    let backup = checked("  ${GetParent} \"$INSTDIR\\.previous\\$R3\" $R8\n  CreateDirectory \"$R8\"\n  CopyFiles /SILENT /FILESONLY \"$INSTDIR\\$R3\" \"$R8\"", "Backing up $INSTDIR\\$R3");
+    lines.push(manifest_loop("backup", &backup_manifest, &backup));
+    lines.push("  StrCpy $UpdateWriting 1\n  backupdone:".into());
+    // An unreadable backup list must never permit deletion of the installed files.
+    lines.push("  StrCmp $UpdateBackup 1 0 olddone\n  StrCmp $UpdateWriting 1 +2\n  Abort \"Could not read the previous install manifest.\"".into());
+    lines.push(manifest_loop(
+        "old",
+        &old_manifest,
+        "  Delete \"$INSTDIR\\$R3\"",
+    ));
+    lines.push("  RMDir \"$INSTDIR\\bin\"\n  RMDir \"$INSTDIR\\third-party\"\n  olddone:\n  SetOverwrite try".into());
     lines.push("  SetOutPath \"$INSTDIR\"".into());
     for file in files {
         let destination = if file.starts_with("third-party\\") {
@@ -183,22 +198,31 @@ pub(super) fn installer_script(
         };
         lines.push(format!("  SetOutPath \"{destination}\""));
         let path = format!("{}\\{file}", source_dir.display());
-        lines.push(format!("  File {}", quote(&path)?));
+        lines.push(checked(
+            &format!("  File {}", quote(&path)?),
+            &format!("Installing {file}"),
+        ));
     }
     lines.push("  SetOutPath \"$INSTDIR\\bin\"".into());
     for file in files
         .iter()
         .filter(|file| file.to_ascii_lowercase().ends_with(".dll"))
     {
-        lines.push(format!(
-            "  File {}",
-            quote(&format!("{}\\{file}", source_dir.display()))?
+        lines.push(checked(
+            &format!(
+                "  File {}",
+                quote(&format!("{}\\{file}", source_dir.display()))?
+            ),
+            &format!("Installing bin\\{file}"),
         ));
     }
     for name in ["ffmpeg.exe", "ffprobe.exe"] {
-        lines.push(format!(
-            "  File {}",
-            quote(&format!("{}\\bin\\{name}", source_dir.display()))?
+        lines.push(checked(
+            &format!(
+                "  File {}",
+                quote(&format!("{}\\bin\\{name}", source_dir.display()))?
+            ),
+            &format!("Installing bin\\{name}"),
         ));
     }
     lines.push("  SetOutPath \"$INSTDIR\"".into());
@@ -217,6 +241,7 @@ pub(super) fn installer_script(
         String::new(),
         "Section \"Uninstall\"".to_string(),
     ]);
+    let payload_start = lines.len();
     for file in files {
         lines.push(format!("  Delete \"$INSTDIR\\{file}\""));
     }
@@ -229,6 +254,7 @@ pub(super) fn installer_script(
     for name in ["ffmpeg.exe", "ffprobe.exe"] {
         lines.push(format!("  Delete \"$INSTDIR\\bin\\{name}\""));
     }
+    let payload_deletes = lines[payload_start..].to_vec();
     lines.push("  RMDir \"$INSTDIR\\bin\"".into());
     lines.push("  RMDir \"$INSTDIR\\third-party\"".into());
     lines.extend([
@@ -240,11 +266,23 @@ pub(super) fn installer_script(
         "SectionEnd".to_string(),
         String::new(),
         "Function .onInstSuccess".to_string(),
+    ]);
+    lines.push("  StrCmp $UpdateBackup 1 0 cleanupdone".into());
+    lines.push(manifest_loop("cleanup", &backup_manifest, "  Delete \"$INSTDIR\\.previous\\$R3\"\n  ${GetParent} \"$INSTDIR\\.previous\\$R3\" $R8\n  cleanupdirs:\n  StrCmp $R8 \"$INSTDIR\\.previous\" cleanupnext\n  RMDir \"$R8\"\n  ${GetParent} \"$R8\" $R8\n  Goto cleanupdirs\n  cleanupnext:"));
+    lines.push(format!(
+        "  Delete \"{backup_manifest}\"\n  RMDir \"{previous}\"\n  cleanupdone:"
+    ));
+    lines.extend([
         "  IfSilent 0 done".to_string(),
         format!("  Exec '\"{exe}\"'"),
         "  done:".to_string(),
         "FunctionEnd".to_string(),
     ]);
+    lines.push("Function .onInstFailed\n  StrCmp $UpdateBackup 1 0 faileddone\n  FileClose $R2\n  StrCmp $UpdateWriting 1 0 reporterror".into());
+    // Remove only the known new payload before restoring, including newly added files.
+    lines.extend(payload_deletes);
+    lines.push(manifest_loop("restore", &backup_manifest, "  ${GetParent} \"$INSTDIR\\$R3\" $R8\n  CreateDirectory \"$R8\"\n  ClearErrors\n  CopyFiles /SILENT /FILESONLY \"$INSTDIR\\.previous\\$R3\" \"$R8\"\n  IfErrors 0 +2\n  StrCpy $UpdateFailure \"$UpdateFailure; restoring $R3 also failed\""));
+    lines.push(format!("  restoredone:\n  ClearErrors\n  CopyFiles /SILENT /FILESONLY \"{backup_manifest}\" \"$INSTDIR\"\n  IfErrors 0 +2\n  StrCpy $UpdateFailure \"$UpdateFailure; restoring the install manifest also failed\"\n  reporterror:\n  CreateDirectory \"$APPDATA\\{identifier}\"\n  FileOpen $R2 \"$APPDATA\\{identifier}\\update-error.txt\" w\n  IfErrors faileddone\n  FileWrite $R2 \"The update could not be completed.$\\r$\\n$\\r$\\nWhat failed: $UpdateFailure$\\r$\\nThe previous app version is at: {previous}$\\r$\\n\"\n  FileClose $R2\n  faileddone:\n  SetErrorLevel 2\nFunctionEnd"));
     Ok(lines.join("\n") + "\n")
 }
 
