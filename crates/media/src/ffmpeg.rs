@@ -108,6 +108,49 @@ fn check_cancel(cancel: &CancellationToken) -> Result<(), ExecError> {
     }
 }
 
+/// The H.264 encoders FFmpeg can name, in the order the picker prefers them.
+const H264_ENCODERS: [&str; 4] = ["libopenh264", "libx264", "h264_mf", "h264_videotoolbox"];
+
+/// Names of the known H.264 encoders in `ffmpeg -hide_banner -encoders` output.
+pub fn parse_h264_encoders(encoders_output: &str) -> Vec<String> {
+    let listed: Vec<&str> = encoders_output
+        .lines()
+        .filter_map(|line| line.split_whitespace().nth(1))
+        .collect();
+    H264_ENCODERS
+        .iter()
+        .filter(|name| listed.contains(name))
+        .map(|name| name.to_string())
+        .collect()
+}
+
+/// Asks the FFmpeg at `ffmpeg` which H.264 encoders it has.
+pub async fn list_h264_encoders(
+    ffmpeg: &Path,
+    cancel: CancellationToken,
+) -> Result<Vec<String>, ExecError> {
+    let mut listing = String::new();
+    let status = run(
+        ProcessSpec {
+            program: ffmpeg.to_owned(),
+            args: ["-hide_banner", "-encoders"].map(Into::into).to_vec(),
+            cwd: None,
+        },
+        |stream, line| {
+            if stream == Stream::Stdout && listing.len() <= 1_048_576 {
+                listing.push_str(line);
+                listing.push('\n');
+            }
+        },
+        cancel,
+    )
+    .await?;
+    if status.code != Some(0) {
+        return Err(ExecError::StepFailed(status.code));
+    }
+    Ok(parse_h264_encoders(&listing))
+}
+
 /// Executes and verifies each step, then publishes the planned outputs.
 pub async fn execute(
     plan: &ExportPlan,
@@ -231,3 +274,7 @@ mod tests;
 #[cfg(test)]
 #[path = "ffmpeg_more_tests.rs"]
 mod more_tests;
+
+#[cfg(test)]
+#[path = "ffmpeg_encoder_tests.rs"]
+mod encoder_tests;

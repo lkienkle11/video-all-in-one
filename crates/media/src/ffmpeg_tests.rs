@@ -9,7 +9,7 @@ use std::{
 };
 use vaio_core::{
     domain::{
-        export::{CutMode, ExportMode},
+        export::{CutMode, ExportMode, H264Encoder},
         segment::Segment,
         time::TimeMs,
     },
@@ -99,6 +99,7 @@ impl Fixture {
                 export: mode,
                 out_dir: &self.dir,
                 stem: "export",
+                precise_encoder: H264Encoder::X264,
             },
             &Path::exists,
         )

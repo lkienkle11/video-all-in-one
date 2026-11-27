@@ -272,3 +272,40 @@ async fn a_tool_path_change_is_used_without_rebuilding_the_runner() {
     assert_eq!(outputs, vec![f.dir.join("late.mp4")]);
     runner.cleanup_temp(&job).unwrap();
 }
+
+#[cfg(unix)]
+#[tokio::test]
+async fn precise_export_fails_with_a_plain_reason_when_the_ffmpeg_has_no_h264_encoder() {
+    use std::os::unix::fs::PermissionsExt;
+    let f = Fixture::new();
+    let fake = f.dir.join("fake-ffmpeg");
+    fs::write(
+        &fake,
+        "#!/bin/sh\nprintf 'Encoders:\\n ------\\n A....D aac   AAC\\n V....D mpeg4   MPEG-4 part 2\\n'\n",
+    )
+    .unwrap();
+    fs::set_permissions(&fake, fs::Permissions::from_mode(0o755)).unwrap();
+    let job = Job::new(JobId(17), JobKind::Cut);
+    let store = Arc::new(Stored(StoredJob {
+        job: job.clone(),
+        payload: f
+            .payload(CutMode::Precise, ExportMode::Separate, "none")
+            .to_json()
+            .unwrap(),
+        created_at_ms: 0,
+        updated_at_ms: 0,
+    }));
+    let real = tools();
+    let runner = FfmpegExportRunner::new(
+        store,
+        FfmpegPaths {
+            ffmpeg: fake,
+            ffprobe: real.ffprobe,
+        },
+    );
+    let failure = runner
+        .run(&job, &mut |_| {}, CancellationToken::new())
+        .await
+        .unwrap_err();
+    assert_eq!(failure.0, "this FFmpeg has no H.264 encoder");
+}
