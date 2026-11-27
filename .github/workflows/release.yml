@@ -292,8 +292,10 @@ jobs:
         run: |
           app="dist/stage-macos/Video All-in-One.app"
           codesign --verify --deep --strict "$app"
+          DYLD_LIBRARY_PATH= DYLD_FALLBACK_LIBRARY_PATH= "$app/Contents/Resources/bin/ffmpeg" -version
+          DYLD_LIBRARY_PATH= DYLD_FALLBACK_LIBRARY_PATH= "$app/Contents/Resources/bin/ffprobe" -version
           status=0
-          for file in "$app/Contents/MacOS/video-all-in-one" "$app"/Contents/Frameworks/*.dylib; do
+          for file in "$app/Contents/MacOS/video-all-in-one" "$app"/Contents/Resources/bin/* "$app"/Contents/Frameworks/*.dylib; do
             if otool -L "$file" | tail -n +2 | grep -E "/opt/homebrew|/usr/local"; then
               echo "::error::$file still points at the build machine"
               status=1
@@ -320,6 +322,10 @@ jobs:
           dpkg-deb --contents dist/video-all-in-one-*-linux-x86_64.deb
           # apt resolves the Depends: line of the package, which proves it can be installed.
           sudo apt-get install -y ./dist/video-all-in-one-*-linux-x86_64.deb
+          extracted="$RUNNER_TEMP/package-smoke"
+          dpkg-deb --extract dist/video-all-in-one-*-linux-x86_64.deb "$extracted"
+          LD_LIBRARY_PATH= "$extracted/usr/lib/video-all-in-one/bin/ffmpeg" -version
+          LD_LIBRARY_PATH= "$extracted/usr/lib/video-all-in-one/bin/ffprobe" -version
           test -x /usr/bin/video-all-in-one
           test -f /usr/share/applications/video-all-in-one.desktop
           test -e /usr/lib/video-all-in-one/libmpv.so.2
@@ -352,6 +358,10 @@ jobs:
           $dir = Join-Path $env:LOCALAPPDATA 'Programs\Video All-in-One'
           if (-not (Test-Path (Join-Path $dir 'video-all-in-one.exe'))) { throw 'the app was not installed' }
           if (-not (Test-Path (Join-Path $dir 'libmpv-2.dll'))) { throw 'libmpv-2.dll was not installed' }
+          & (Join-Path $dir 'bin\ffmpeg.exe') -version
+          if ($LASTEXITCODE -ne 0) { throw 'the installed FFmpeg did not run' }
+          & (Join-Path $dir 'bin\ffprobe.exe') -version
+          if ($LASTEXITCODE -ne 0) { throw 'the installed FFprobe did not run' }
           # A silent install starts the app, as it does after an update.
           Stop-Process -Name 'video-all-in-one' -Force -ErrorAction SilentlyContinue
           Start-Sleep -Seconds 2

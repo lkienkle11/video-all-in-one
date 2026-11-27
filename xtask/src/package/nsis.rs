@@ -1,8 +1,10 @@
 //! The Windows package: an NSIS installer script generated from a template and built with
 //! `makensis`. The installer is per user (no administrator rights) and installs silently
 //! with `/S`, which is how the app's updater runs it.
+//! FFmpeg and FFprobe live in `bin` with DLL copies for the Windows loader; licence texts
+//! and source URLs from the build's `LICENSES` folder live in `third-party`.
 
-use super::license::check_bundle_license;
+use super::license::{bundled_tools, check_bundle_license};
 use super::{package_file_name, production_icon, run_tool, APP_NAME, BINARY_NAME, IDENTIFIER};
 use anyhow::{bail, Context, Result};
 use std::fs;
@@ -43,7 +45,7 @@ pub(super) fn installer_script(
     icon: &Path,
 ) -> Result<String> {
     for file in files {
-        check_file_name(file)?;
+        check_file_name(file.strip_prefix("third-party\\").unwrap_or(file))?;
     }
     let exe = format!("$INSTDIR\\{BINARY_NAME}.exe");
     let shortcut = format!("$SMPROGRAMS\\{APP_NAME}.lnk");
@@ -66,9 +68,32 @@ pub(super) fn installer_script(
         "  SetOutPath \"$INSTDIR\"".into(),
     ];
     for file in files {
+        let destination = if file.starts_with("third-party\\") {
+            "$INSTDIR\\third-party"
+        } else {
+            "$INSTDIR"
+        };
+        lines.push(format!("  SetOutPath \"{destination}\""));
         let path = format!("{}\\{file}", source_dir.display());
         lines.push(format!("  File {}", quote(&path)?));
     }
+    lines.push("  SetOutPath \"$INSTDIR\\bin\"".into());
+    for file in files
+        .iter()
+        .filter(|file| file.to_ascii_lowercase().ends_with(".dll"))
+    {
+        lines.push(format!(
+            "  File {}",
+            quote(&format!("{}\\{file}", source_dir.display()))?
+        ));
+    }
+    for name in ["ffmpeg.exe", "ffprobe.exe"] {
+        lines.push(format!(
+            "  File {}",
+            quote(&format!("{}\\bin\\{name}", source_dir.display()))?
+        ));
+    }
+    lines.push("  SetOutPath \"$INSTDIR\"".into());
     lines.extend([
         "  WriteUninstaller \"$INSTDIR\\uninstall.exe\"".to_string(),
         format!("  CreateShortcut \"{shortcut}\" \"{exe}\""),
@@ -86,6 +111,17 @@ pub(super) fn installer_script(
     for file in files {
         lines.push(format!("  Delete \"$INSTDIR\\{file}\""));
     }
+    for file in files
+        .iter()
+        .filter(|file| file.to_ascii_lowercase().ends_with(".dll"))
+    {
+        lines.push(format!("  Delete \"$INSTDIR\\bin\\{file}\""));
+    }
+    for name in ["ffmpeg.exe", "ffprobe.exe"] {
+        lines.push(format!("  Delete \"$INSTDIR\\bin\\{name}\""));
+    }
+    lines.push("  RMDir \"$INSTDIR\\bin\"".into());
+    lines.push("  RMDir \"$INSTDIR\\third-party\"".into());
     lines.extend([
         "  Delete \"$INSTDIR\\uninstall.exe\"".to_string(),
         format!("  Delete \"{shortcut}\""),
@@ -114,11 +150,22 @@ pub(super) fn build(
     let Some(libs) = libs else {
         bail!("--libs is required on Windows: the folder with libmpv-2.dll and the DLLs it needs");
     };
+    let tools = bundled_tools(libs, true, allow_gpl)?;
     let stage = out.join("stage-windows");
     if stage.exists() {
         fs::remove_dir_all(&stage).with_context(|| format!("clearing {}", stage.display()))?;
     }
     fs::create_dir_all(&stage)?;
+    fs::create_dir_all(stage.join("bin"))?;
+    for tool in &tools {
+        fs::copy(
+            tool,
+            stage
+                .join("bin")
+                .join(tool.file_name().context("tool has a file name")?),
+        )
+        .with_context(|| format!("copying {}", tool.display()))?;
+    }
     let exe_name = format!("{BINARY_NAME}.exe");
     fs::copy(binary, stage.join(&exe_name))
         .with_context(|| format!("copying {}", binary.display()))?;
@@ -149,6 +196,22 @@ pub(super) fn build(
     {
         bail!("{} has no libmpv-2.dll", libs.display());
     }
+    fs::create_dir_all(stage.join("third-party"))?;
+    let mut licenses = Vec::new();
+    for entry in fs::read_dir(libs.join("LICENSES"))
+        .context("the --libs folder must contain LICENSES with licence texts and source URLs")?
+    {
+        let entry = entry?;
+        let name = entry.file_name().to_string_lossy().into_owned();
+        check_file_name(&name)?;
+        fs::copy(entry.path(), stage.join("third-party").join(&name))?;
+        licenses.push(format!("third-party\\{name}"));
+    }
+    if licenses.is_empty() {
+        bail!("the --libs LICENSES folder is empty");
+    }
+    licenses.sort();
+    files.extend(licenses);
     let installer = out.join(package_file_name(version, key, "exe"));
     if installer.exists() {
         fs::remove_file(&installer)?;

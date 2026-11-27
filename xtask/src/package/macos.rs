@@ -1,7 +1,8 @@
 //! The macOS package: `Video All-in-One.app` with its libraries inside, an ad-hoc signature,
 //! the zipped bundle (the update artifact) and a disk image.
+//! FFmpeg and FFprobe are signed in `Contents/Resources/bin` and load `Contents/Frameworks`.
 
-use super::license::check_bundle_license;
+use super::license::{bundled_tools, check_bundle_license};
 use super::macos_libs::{self, Closure};
 use super::{package_file_name, production_icon, run_tool, APP_NAME, BINARY_NAME, IDENTIFIER};
 use anyhow::{bail, Context, Result};
@@ -67,6 +68,9 @@ pub(super) fn build(
             super::license::ALLOW_GPL_FLAG
         );
     }
+    let tool_source =
+        libmpv_dir.context("--libmpv-dir is required for bundled FFmpeg and FFprobe")?;
+    let tools = bundled_tools(&tool_source.join("bin"), false, allow_gpl)?;
     let stage = out.join("stage-macos");
     if stage.exists() {
         fs::remove_dir_all(&stage).with_context(|| format!("clearing {}", stage.display()))?;
@@ -81,6 +85,15 @@ pub(super) fn build(
     if let Some(dir) = libmpv_dir {
         copy_licenses(&dir.join("LICENSES"), &resources.join("third-party"))?;
     }
+    let bin = resources.join("bin");
+    fs::create_dir_all(&bin)?;
+    let mut installed_tools = Vec::new();
+    for tool in &tools {
+        let target = bin.join(tool.file_name().context("tool has a file name")?);
+        fs::copy(tool, &target).with_context(|| format!("copying {}", tool.display()))?;
+        make_writable_executable(&target)?;
+        installed_tools.push(target);
+    }
     let icon = production_icon(root, "icon.icns")?;
     fs::copy(&icon, resources.join(format!("{ICON_NAME}.icns")))
         .with_context(|| format!("copying {}", icon.display()))?;
@@ -88,7 +101,31 @@ pub(super) fn build(
     fs::copy(binary, &executable).with_context(|| format!("copying {}", binary.display()))?;
     make_writable_executable(&executable)?;
 
-    let found = find_libraries(&executable, libmpv_dir)?;
+    let mut found = find_libraries(&executable, libmpv_dir)?;
+    for tool in &installed_tools {
+        let closure = find_libraries(tool, libmpv_dir)?;
+        remove_absolute_rpaths(tool)?;
+        run_tool(
+            Command::new("install_name_tool").args(macos_libs::install_name_args(
+                None,
+                &closure.binary_deps,
+                tool,
+            )),
+        )?;
+        for library in closure.libraries {
+            if let Some(existing) = found
+                .libraries
+                .iter()
+                .find(|item| item.name == library.name)
+            {
+                if existing.source != library.source {
+                    bail!("{} would be bundled from two files", library.name);
+                }
+            } else {
+                found.libraries.push(library);
+            }
+        }
+    }
     let sources: Vec<PathBuf> = found.libraries.iter().map(|l| l.source.clone()).collect();
     for warning in check_bundle_license(&sources, allow_gpl)? {
         println!("warning: {warning}");
@@ -121,6 +158,7 @@ pub(super) fn build(
         .iter()
         .map(|library| frameworks.join(&library.name))
         .chain([executable.clone()])
+        .chain(installed_tools.iter().cloned())
     {
         remove_absolute_rpaths(&file)?;
     }
@@ -131,6 +169,7 @@ pub(super) fn build(
         .iter()
         .map(|library| frameworks.join(&library.name))
         .chain([executable.clone()])
+        .chain(installed_tools.iter().cloned())
     {
         versions.extend(minimum_os_of(&file)?);
     }
@@ -148,6 +187,9 @@ pub(super) fn build(
         adhoc_sign(&frameworks.join(&library.name))?;
     }
     adhoc_sign(&executable)?;
+    for tool in &installed_tools {
+        adhoc_sign(tool)?;
+    }
     adhoc_sign(&app)?;
     run_tool(
         Command::new("codesign")
@@ -324,62 +366,5 @@ fn make_writable_executable(_path: &Path) -> Result<()> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{info_plist, resolve_in_build};
-    use std::path::Path;
-
-    #[test]
-    fn libraries_resolve_only_inside_the_libmpv_build() {
-        let dir = std::env::temp_dir().join(format!("vaio-macos-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(dir.join("libmpv.2.dylib"), b"x").unwrap();
-        let real = dir.canonicalize().unwrap().join("libmpv.2.dylib");
-        assert_eq!(
-            resolve_in_build("@rpath/libmpv.2.dylib", Path::new(""), &dir).unwrap(),
-            real
-        );
-        assert_eq!(
-            resolve_in_build("@loader_path/libmpv.2.dylib", &dir, &dir).unwrap(),
-            real
-        );
-        for outside in [
-            "/opt/homebrew/lib/libmpv.2.dylib",
-            "/usr/local/lib/libx.dylib",
-            "@executable_path/x.dylib",
-        ] {
-            let error = resolve_in_build(outside, &dir, &dir)
-                .unwrap_err()
-                .to_string();
-            assert!(error.contains("outside the libmpv build"), "{error}");
-        }
-        assert!(resolve_in_build("@rpath/libmissing.dylib", Path::new(""), &dir).is_err());
-        std::fs::remove_dir_all(dir).unwrap();
-    }
-
-    #[test]
-    fn info_plist_names_the_production_app_and_its_minimum_system() {
-        let plist = info_plist("0.1.0", "13.0");
-        for expected in [
-            "<key>CFBundleIdentifier</key>\n\t<string>app.videoallinone</string>",
-            "<key>CFBundleExecutable</key>\n\t<string>video-all-in-one</string>",
-            "<key>CFBundleShortVersionString</key>\n\t<string>0.1.0</string>",
-            "<key>CFBundleVersion</key>\n\t<string>0.1.0</string>",
-            "<key>LSMinimumSystemVersion</key>\n\t<string>13.0</string>",
-            "<key>CFBundleName</key>\n\t<string>Video All-in-One</string>",
-            "<key>CFBundlePackageType</key>\n\t<string>APPL</string>",
-            "<key>CFBundleIconFile</key>\n\t<string>AppIcon</string>",
-        ] {
-            assert!(plist.contains(expected), "missing {expected:?} in\n{plist}");
-        }
-        assert!(plist.starts_with("<?xml"));
-        assert!(
-            !plist.contains("app.videoallinone.dev"),
-            "never the dev identifier"
-        );
-    }
-
-    #[test]
-    fn info_plist_escapes_text_it_embeds() {
-        assert!(info_plist("1.0.0<&>", "13.0").contains("1.0.0&lt;&amp;&gt;"));
-    }
-}
+#[path = "macos_tests.rs"]
+mod tests;

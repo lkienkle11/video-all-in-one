@@ -1,9 +1,10 @@
 //! The Ubuntu package: a `.deb` staged as a plain directory tree and built with `dpkg-deb`.
 //! It carries its own LGPL libmpv and FFmpeg (built by `cargo xtask libmpv build`) in
 //! `/usr/lib/video-all-in-one`, so one package runs on Ubuntu 22.04 and later.
+//! FFmpeg and FFprobe live in its `bin` subfolder with `$ORIGIN/..` as their run path.
 
 use super::elf;
-use super::license::check_bundle_license;
+use super::license::{bundled_tools, check_bundle_license};
 use super::{package_file_name, production_icon, run_tool, APP_NAME, BINARY_NAME};
 use anyhow::{bail, Context, Result};
 use std::fs;
@@ -25,8 +26,7 @@ pub(super) const RUN_PATH: &str = "$ORIGIN/../lib/video-all-in-one";
 
 /// The `DEBIAN/control` text. `installed_kib` is the size of the staged files in KiB and
 /// `depends` the system packages the executable and the bundled libraries need
-/// (see `elf::system_depends`). ffmpeg is only recommended: the app tells the user when it is
-/// missing.
+/// and tools need (see `elf::system_depends`).
 pub(super) fn control_file(version: &str, installed_kib: u64, depends: &[String]) -> String {
     [
         format!("Package: {BINARY_NAME}"),
@@ -36,7 +36,6 @@ pub(super) fn control_file(version: &str, installed_kib: u64, depends: &[String]
         "Architecture: amd64".to_string(),
         format!("Installed-Size: {installed_kib}"),
         format!("Depends: {}", depends.join(", ")),
-        "Recommends: ffmpeg".to_string(),
         format!("Maintainer: {APP_NAME} project <noreply@example.invalid>"),
         format!("Description: {APP_NAME}, a desktop app to cut and export videos"),
     ]
@@ -75,6 +74,7 @@ pub(super) fn build(
     key: &str,
     bundle: &Bundle,
 ) -> Result<()> {
+    let tools = bundled_tools(&bundle.libmpv_dir.join("bin"), false, bundle.allow_gpl)?;
     let stage = out.join("stage-deb");
     if stage.exists() {
         fs::remove_dir_all(&stage).with_context(|| format!("clearing {}", stage.display()))?;
@@ -86,6 +86,17 @@ pub(super) fn build(
     let lib_dir = tree.join(LIB_DIR);
     for dir in [&bin_dir, &apps_dir, &control_dir, &lib_dir] {
         fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
+    }
+    let tool_dir = lib_dir.join("bin");
+    fs::create_dir_all(&tool_dir)?;
+    let mut installed_tools = Vec::new();
+    let mut kib_tools = 0;
+    for source in &tools {
+        let target = tool_dir.join(source.file_name().context("tool has a file name")?);
+        fs::copy(source, &target).with_context(|| format!("copying {}", source.display()))?;
+        set_mode(&target, 0o755)?;
+        kib_tools += fs::metadata(&target)?.len().div_ceil(1024);
+        installed_tools.push(target);
     }
     let installed = bin_dir.join(BINARY_NAME);
     fs::copy(binary, &installed).with_context(|| format!("copying {}", binary.display()))?;
@@ -102,6 +113,18 @@ pub(super) fn build(
     }
     let (bundled, kib_libs) = stage_libraries(bundle, &lib_dir)?;
     let mut needed = elf::needed(&executable_dynamic);
+    for tool in &installed_tools {
+        run_tool(
+            Command::new("patchelf")
+                .args(["--set-rpath", "$ORIGIN/.."])
+                .arg(tool),
+        )?;
+        let dynamic = readelf_dynamic(tool)?;
+        if elf::run_paths(&dynamic) != ["$ORIGIN/.."] {
+            bail!("{} must have the run path $ORIGIN/.. only", tool.display());
+        }
+        needed.extend(elf::needed(&dynamic));
+    }
     let mut real_libraries = Vec::new();
     for name in &bundled {
         let path = lib_dir.join(name);
@@ -126,7 +149,7 @@ pub(super) fn build(
     let icon_source = production_icon(root, "icon.png")?;
     fs::copy(&icon_source, &icon).with_context(|| format!("copying {}", icon_source.display()))?;
     set_mode(&icon, 0o644)?;
-    let kib = (fs::metadata(&installed)?.len().div_ceil(1024)) + kib_libs;
+    let kib = (fs::metadata(&installed)?.len().div_ceil(1024)) + kib_libs + kib_tools;
     let control = control_dir.join("control");
     fs::write(&control, control_file(version, kib, &depends))?;
     set_mode(&control, 0o644)?;
@@ -285,7 +308,7 @@ mod tests {
             !control.contains("libmpv"),
             "libmpv is bundled, not a dependency"
         );
-        assert_eq!(field(&control, "Recommends"), Some("ffmpeg"));
+        assert_eq!(field(&control, "Recommends"), None);
         assert!(
             field(&control, "Maintainer").is_some(),
             "dpkg wants a maintainer"
