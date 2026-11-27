@@ -308,7 +308,14 @@ jobs:
         if: matrix.target == 'windows'
         shell: pwsh
         run: |
-          choco install nsis --no-progress -y
+          # The Chocolatey feed sometimes answers 504 (it did on the v0.2.0 tag run), and choco then
+          # exits without an error for this step: try again and fail here if NSIS is still missing.
+          $makensis = 'C:\Program Files (x86)\NSIS\makensis.exe'
+          for ($try = 1; $try -le 4 -and -not (Test-Path $makensis); $try++) {
+            choco install nsis --no-progress -y
+            if (-not (Test-Path $makensis)) { Start-Sleep -Seconds (20 * $try) }
+          }
+          if (-not (Test-Path $makensis)) { throw 'NSIS could not be installed' }
           "C:\Program Files (x86)\NSIS" | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
 
       - name: Package (Windows)
@@ -412,7 +419,7 @@ jobs:
       - name: Build the development app
         run: |
           if [ "$RUNNER_OS" = Linux ]; then
-            export RUSTFLAGS="-L native=$LIBMPV_DIR/lib -C link-arg=-Wl,-rpath-link,$LIBMPV_DIR/lib -C link-arg=-Wl,-rpath,\$ORIGIN/../lib/video-all-in-one-dev"
+            export RUSTFLAGS="-L native=$LIBMPV_DIR/lib -C link-arg=-Wl,-rpath-link,$LIBMPV_DIR/lib -C link-arg=-Wl,-rpath,\$ORIGIN/../lib/video-all-in-one"
           fi
           if [ -n "${{ matrix.rust_target }}" ]; then
             cargo build --locked --release --target "${{ matrix.rust_target }}" -p vaio-desktop
