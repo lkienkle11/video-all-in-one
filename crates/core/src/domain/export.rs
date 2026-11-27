@@ -15,6 +15,48 @@ pub enum CutMode {
     Precise,
 }
 
+/// An H.264 encoder that an FFmpeg build can offer for a precise cut.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum H264Encoder {
+    /// OpenH264, the encoder in the bundled LGPL FFmpeg.
+    OpenH264,
+    /// x264, found in a developer's own FFmpeg; never in a release package.
+    X264,
+    /// Windows Media Foundation.
+    MediaFoundation,
+    /// Apple VideoToolbox.
+    VideoToolbox,
+}
+
+impl H264Encoder {
+    /// The name FFmpeg uses for this encoder, as in `-c:v <name>`.
+    pub fn ffmpeg_name(&self) -> &'static str {
+        match self {
+            Self::OpenH264 => "libopenh264",
+            Self::X264 => "libx264",
+            Self::MediaFoundation => "h264_mf",
+            Self::VideoToolbox => "h264_videotoolbox",
+        }
+    }
+}
+
+/// Picks the first available encoder in the order `libopenh264`, `libx264`, `h264_mf`
+/// (only when `os` is `windows`), `h264_videotoolbox` (only when `os` is `macos`).
+pub fn pick_h264_encoder(available: &[String], os: &str) -> Option<H264Encoder> {
+    let has = |name: &str| available.iter().any(|a| a == name);
+    if has("libopenh264") {
+        Some(H264Encoder::OpenH264)
+    } else if has("libx264") {
+        Some(H264Encoder::X264)
+    } else if os == "windows" && has("h264_mf") {
+        Some(H264Encoder::MediaFoundation)
+    } else if os == "macos" && has("h264_videotoolbox") {
+        Some(H264Encoder::VideoToolbox)
+    } else {
+        None
+    }
+}
+
 /// How the segments become files.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExportMode {
@@ -101,3 +143,80 @@ impl fmt::Display for PlanError {
 }
 
 impl std::error::Error for PlanError {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn names(list: &[&str]) -> Vec<String> {
+        list.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn pick_prefers_openh264_over_every_other() {
+        let all = names(&["h264_videotoolbox", "h264_mf", "libx264", "libopenh264"]);
+        assert_eq!(
+            pick_h264_encoder(&all, "macos"),
+            Some(H264Encoder::OpenH264)
+        );
+        assert_eq!(
+            pick_h264_encoder(&all, "windows"),
+            Some(H264Encoder::OpenH264)
+        );
+    }
+
+    #[test]
+    fn pick_prefers_x264_over_platform_encoders() {
+        let list = names(&["h264_videotoolbox", "h264_mf", "libx264"]);
+        assert_eq!(pick_h264_encoder(&list, "macos"), Some(H264Encoder::X264));
+        assert_eq!(pick_h264_encoder(&list, "windows"), Some(H264Encoder::X264));
+    }
+
+    #[test]
+    fn pick_uses_media_foundation_only_on_windows() {
+        let list = names(&["h264_mf"]);
+        assert_eq!(
+            pick_h264_encoder(&list, "windows"),
+            Some(H264Encoder::MediaFoundation)
+        );
+        assert_eq!(pick_h264_encoder(&list, "linux"), None);
+        assert_eq!(pick_h264_encoder(&list, "macos"), None);
+    }
+
+    #[test]
+    fn pick_uses_videotoolbox_only_on_macos() {
+        let list = names(&["h264_videotoolbox"]);
+        assert_eq!(
+            pick_h264_encoder(&list, "macos"),
+            Some(H264Encoder::VideoToolbox)
+        );
+        assert_eq!(pick_h264_encoder(&list, "linux"), None);
+        assert_eq!(pick_h264_encoder(&list, "windows"), None);
+    }
+
+    #[test]
+    fn pick_returns_none_when_no_h264_encoder() {
+        assert_eq!(pick_h264_encoder(&[], "linux"), None);
+        assert_eq!(pick_h264_encoder(&names(&["aac", "mpeg4"]), "macos"), None);
+    }
+
+    #[test]
+    fn the_lgpl_bundle_list_never_picks_x264() {
+        let bundle = names(&["libopenh264", "h264_mf"]);
+        for os in ["macos", "windows", "linux"] {
+            assert_eq!(pick_h264_encoder(&bundle, os), Some(H264Encoder::OpenH264));
+        }
+        assert_eq!(
+            pick_h264_encoder(&names(&["h264_mf"]), "windows"),
+            Some(H264Encoder::MediaFoundation)
+        );
+    }
+
+    #[test]
+    fn ffmpeg_names_match_the_encoders() {
+        assert_eq!(H264Encoder::OpenH264.ffmpeg_name(), "libopenh264");
+        assert_eq!(H264Encoder::X264.ffmpeg_name(), "libx264");
+        assert_eq!(H264Encoder::MediaFoundation.ffmpeg_name(), "h264_mf");
+        assert_eq!(H264Encoder::VideoToolbox.ffmpeg_name(), "h264_videotoolbox");
+    }
+}

@@ -1,6 +1,6 @@
 //! Connects durable export jobs to the FFmpeg pipeline.
 use crate::{
-    ffmpeg::{self, FfmpegPaths},
+    ffmpeg::{self, list_h264_encoders, FfmpegPaths},
     ffprobe::{ffprobe_args, parse_ffprobe_json},
     process_runner::{run, ProcessSpec, Stream},
 };
@@ -9,12 +9,12 @@ use std::{
     io,
     path::{Path, PathBuf},
     process::Command,
-    sync::{Arc, RwLock},
+    sync::{Arc, Mutex, RwLock},
 };
 use tokio_util::sync::CancellationToken;
 use vaio_core::{
     domain::{
-        export::{CutMode, ExportMode, ExportPlan},
+        export::{pick_h264_encoder, CutMode, ExportMode, ExportPlan, H264Encoder},
         job::{Job, JobId},
         media::MediaInfo,
         segment::{normalize, Segment},
@@ -92,6 +92,8 @@ impl ToolPathsCell {
 pub struct FfmpegExportRunner {
     store: Arc<dyn JobStore>,
     tools: ToolPathsCell,
+    /// The encoder picked for the FFmpeg at the stored path; a new path is probed again.
+    encoder: Mutex<Option<(PathBuf, Option<H264Encoder>)>>,
 }
 impl FfmpegExportRunner {
     /// Uses the same store as the scheduler; executable resolution belongs to the host.
@@ -100,7 +102,31 @@ impl FfmpegExportRunner {
     }
     /// Reads the paths from `tools` on every run, so the host can change them later.
     pub fn with_shared_tools(store: Arc<dyn JobStore>, tools: ToolPathsCell) -> Self {
-        Self { store, tools }
+        Self {
+            store,
+            tools,
+            encoder: Mutex::new(None),
+        }
+    }
+
+    /// The H.264 encoder of the FFmpeg in use, probed once per FFmpeg path.
+    async fn encoder_for(
+        &self,
+        ffmpeg: &Path,
+        cancel: CancellationToken,
+    ) -> Result<Option<H264Encoder>, RunFailure> {
+        {
+            let cached = self.encoder.lock().unwrap_or_else(|e| e.into_inner());
+            if let Some((path, encoder)) = cached.as_ref() {
+                if path == ffmpeg {
+                    return Ok(*encoder);
+                }
+            }
+        }
+        let available = list_h264_encoders(ffmpeg, cancel).await.map_err(failure)?;
+        let picked = pick_h264_encoder(&available, std::env::consts::OS);
+        *self.encoder.lock().unwrap_or_else(|e| e.into_inner()) = Some((ffmpeg.to_owned(), picked));
+        Ok(picked)
     }
 
     fn payload(store: &dyn JobStore, id: JobId) -> Result<ExportJobPayload, RunFailure> {
@@ -151,7 +177,15 @@ impl ExportRunner for FfmpegExportRunner {
                 ));
             }
             let info = parse_ffprobe_json(&json).map_err(failure)?;
-            let plan = tokio::task::spawn_blocking(move || plan(&payload, &info, false))
+            // A fast cut copies streams, so it needs no encoder and does not probe.
+            let encoder = if payload.cut == CutMode::Precise {
+                self.encoder_for(&tools.ffmpeg, cancel.clone())
+                    .await?
+                    .ok_or_else(|| RunFailure("this FFmpeg has no H.264 encoder".into()))?
+            } else {
+                H264Encoder::OpenH264
+            };
+            let plan = tokio::task::spawn_blocking(move || plan(&payload, &info, false, encoder))
                 .await
                 .map_err(failure)??;
             ffmpeg::execute(&plan, &tools, progress, cancel)
@@ -174,7 +208,8 @@ impl ExportRunner for FfmpegExportRunner {
         }
         let json = std::str::from_utf8(&output.stdout).map_err(failure)?;
         let info = parse_ffprobe_json(json).map_err(failure)?;
-        let plan = plan(&payload, &info, true)?;
+        // The encoder only changes arguments, never the temp file names cleanup needs.
+        let plan = plan(&payload, &info, true, H264Encoder::OpenH264)?;
         for path in plan
             .steps
             .iter()
@@ -207,6 +242,7 @@ fn plan(
     payload: &ExportJobPayload,
     info: &MediaInfo,
     recovering: bool,
+    precise_encoder: H264Encoder,
 ) -> Result<ExportPlan, RunFailure> {
     let segments: Vec<_> = payload
         .segments
@@ -229,6 +265,7 @@ fn plan(
             export: payload.export,
             out_dir: &payload.out_dir,
             stem: &payload.stem,
+            precise_encoder,
         },
         &exists,
     )

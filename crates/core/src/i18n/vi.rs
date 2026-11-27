@@ -24,6 +24,10 @@ pub fn text(text: Text) -> &'static str {
         }
         Text::UpdateLater => "Để sau",
         Text::UpdateNow => "Cập nhật ngay",
+        Text::UpdateJobsRunning => "Đang có {0} lần xuất chưa xong. Cập nhật ngay sẽ dừng chúng.",
+        Text::UpdateAfterJobs => "Cập nhật sau khi xong",
+        Text::UpdateNowStop => "Cập nhật ngay và dừng chúng",
+        Text::UpdateWaitingForJobs => "Đang chờ các lần xuất hoàn tất…",
         Text::ErrorGeneric => "Đã xảy ra lỗi. Vui lòng thử lại.",
         Text::SettingsUpdates => "Cập nhật",
         Text::UpdateCheck => "Kiểm tra cập nhật",
@@ -106,8 +110,14 @@ pub fn text(text: Text) -> &'static str {
         Text::MissingToolBody => "Không tìm thấy {0}. Hãy cài bằng lệnh: {1}, hoặc chọn thư mục chứa công cụ này.",
         Text::MissingToolFolder => "Thư mục chứa FFmpeg và FFprobe",
         Text::MissingToolCheck => "Kiểm tra",
+        Text::MissingToolDamaged => "Bản cài đặt chưa đầy đủ. Hãy cài đặt lại Video All-in-One.",
         Text::MissingToolInvalid => "Không tìm thấy đủ FFmpeg và FFprobe trong thư mục đó.",
         Text::UpdateNotSetUp => "Bản dựng này chưa được thiết lập cập nhật.",
         Text::UpdateErrorFileTitle => "Lần cập nhật trước chưa hoàn tất",
+        Text::StartupErrorTitle => "Video All-in-One không mở được dữ liệu của bạn",
+        Text::StartupNewerData => "Dữ liệu của bạn được tạo bởi phiên bản Video All-in-One mới hơn. Hãy cài phiên bản mới nhất để mở nó.",
+        Text::StartupUnknownDatabase => "Tệp dữ liệu trong thư mục dữ liệu không phải của Video All-in-One. Chưa có gì bị thay đổi.",
+        Text::StartupOther => "Video All-in-One không mở được dữ liệu của mình. Video và tệp của bạn không bị thay đổi.",
+        Text::StartupDataFolder => "Thư mục dữ liệu: {0}",
     }
 }

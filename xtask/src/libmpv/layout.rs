@@ -31,7 +31,26 @@ pub(super) fn finish(
                 out,
                 env,
             )?,
-            Target::Macos => relocate_macho(library, out, env)?,
+            Target::Macos => relocate_macho(library, out, true, env)?,
+        }
+    }
+    for program in ["ffmpeg", "ffprobe"] {
+        let binary = out.join("bin").join(program);
+        if !binary.is_file() {
+            bail!("{} was not built", binary.display());
+        }
+        match target {
+            Target::Ubuntu => run(
+                Path::new("patchelf"),
+                &[
+                    "--set-rpath".into(),
+                    "$ORIGIN/../lib".into(),
+                    path_arg(&binary),
+                ],
+                out,
+                env,
+            )?,
+            Target::Macos => relocate_macho(&binary, out, false, env)?,
         }
     }
     relocate_pkgconfig(out)?;
@@ -63,9 +82,9 @@ fn path_arg(path: &Path) -> String {
     path.display().to_string()
 }
 
-/// Programs, manual pages and static libraries are not part of the package.
+/// Keep FFmpeg and FFprobe; manual pages and static libraries are not part of the package.
 fn remove_unneeded(out: &Path) -> Result<()> {
-    for folder in ["bin", "share", "lib/cmake"] {
+    for folder in ["share", "lib/cmake"] {
         let path = out.join(folder);
         if path.exists() {
             fs::remove_dir_all(&path).with_context(|| format!("removing {}", path.display()))?;
@@ -84,13 +103,22 @@ fn remove_unneeded(out: &Path) -> Result<()> {
 /// macOS: the library's own name, and the names of the libraries next to it, become
 /// `@rpath/<file>`; its only run path becomes `@loader_path`. The ad-hoc signature is renewed
 /// because `install_name_tool` breaks it and arm64 refuses unsigned code.
-fn relocate_macho(library: &Path, out: &Path, env: &[(String, String)]) -> Result<()> {
+fn relocate_macho(
+    library: &Path,
+    out: &Path,
+    is_library: bool,
+    env: &[(String, String)],
+) -> Result<()> {
     let name = library
         .file_name()
         .map_or_else(String::new, |n| n.to_string_lossy().into_owned());
-    let mut args: Vec<String> = vec!["-id".into(), format!("@rpath/{name}")];
+    let mut args: Vec<String> = if is_library {
+        vec!["-id".into(), format!("@rpath/{name}")]
+    } else {
+        vec![]
+    };
     let listing = tool_output("otool", &["-L", &path_arg(library)], env)?;
-    for dep in inspect::macho_absolute_references(&listing, true) {
+    for dep in inspect::macho_absolute_references(&listing, is_library) {
         if dep.starts_with(&out.display().to_string()) {
             if let Some(new) = inspect::rpath_reference(&dep) {
                 args.extend(["-change".into(), dep, new]);
@@ -98,15 +126,23 @@ fn relocate_macho(library: &Path, out: &Path, env: &[(String, String)]) -> Resul
         }
     }
     let existing = inspect::macho_rpaths(&tool_output("otool", &["-l", &path_arg(library)], env)?);
-    let (delete, add) = rpath_edits(&existing);
+    let wanted = if is_library {
+        "@loader_path"
+    } else {
+        "@loader_path/../lib"
+    };
+    let (delete, add) = rpath_edits(&existing, wanted);
     for rpath in delete {
         args.extend(["-delete_rpath".into(), rpath]);
     }
     if add {
-        args.extend(["-add_rpath".into(), "@loader_path".into()]);
+        args.extend(["-add_rpath".into(), wanted.into()]);
     }
-    args.push(path_arg(library));
-    run(Path::new("install_name_tool"), &args, out, env)?;
+    // Nothing to edit on a program relocated before: install_name_tool would fail on a bare path.
+    if has_edits(&args) {
+        args.push(path_arg(library));
+        run(Path::new("install_name_tool"), &args, out, env)?;
+    }
     run(
         Path::new("codesign"),
         &[
@@ -120,19 +156,20 @@ fn relocate_macho(library: &Path, out: &Path, env: &[(String, String)]) -> Resul
     )
 }
 
-/// Which run paths to delete and whether to add `@loader_path`, so that running the relocation
-/// again on an already relocated library (a rebuild from a cached folder) changes nothing:
-/// `install_name_tool` refuses to delete and add the same run path in one call.
-fn rpath_edits(existing: &[String]) -> (Vec<String>, bool) {
+/// Whether `install_name_tool` has a change to make.
+fn has_edits(args: &[String]) -> bool {
+    !args.is_empty()
+}
+
+/// Which run paths to delete and whether to add `@loader_path`, so that relocating again (a rebuild
+/// from a cached folder) changes nothing: `install_name_tool` refuses to delete and add one path.
+fn rpath_edits(existing: &[String], wanted: &str) -> (Vec<String>, bool) {
     let delete = existing
         .iter()
-        .filter(|rpath| rpath.as_str() != "@loader_path")
+        .filter(|rpath| rpath.as_str() != wanted)
         .cloned()
         .collect();
-    (
-        delete,
-        !existing.iter().any(|rpath| rpath == "@loader_path"),
-    )
+    (delete, !existing.iter().any(|rpath| rpath == wanted))
 }
 
 fn tool_output(program: &str, args: &[&str], env: &[(String, String)]) -> Result<String> {
@@ -171,6 +208,21 @@ fn write_licenses(out: &Path, work: &Path, built: &[Built]) -> Result<()> {
     fs::create_dir_all(&folder)?;
     for item in built {
         let src = item.source.src_dir(work);
+        if item.source.name == "openh264" {
+            let text =
+                fs::read_to_string(src.join("LICENSE")).context("reading OpenH264 licence")?;
+            for required in [
+                "Copyright (c) 2013, Cisco Systems",
+                "Redistribution and use in source and binary forms",
+                "Redistributions of source code must retain",
+                "Redistributions in binary form must reproduce",
+                "THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS \"AS IS\"",
+            ] {
+                if !text.contains(required) {
+                    bail!("OpenH264 licence is not the expected BSD 2-clause text: missing {required}");
+                }
+            }
+        }
         for file in item.source.licenses {
             let from = src.join(file);
             let base = Path::new(file)
@@ -188,7 +240,9 @@ fn write_licenses(out: &Path, work: &Path, built: &[Built]) -> Result<()> {
 fn verify(target: Target, out: &Path, work: &Path, env: &[(String, String)]) -> Result<()> {
     let libraries = libraries(out)?;
     // Without the override flag a GPL or non-free library is an error, so this returns no warnings.
-    check_bundle_license(&libraries, false)?;
+    let mut binaries = libraries.clone();
+    binaries.extend([out.join("bin/ffmpeg"), out.join("bin/ffprobe")]);
+    check_bundle_license(&binaries, false)?;
     let mpv = libraries
         .iter()
         .find(|l| {
@@ -202,24 +256,30 @@ fn verify(target: Target, out: &Path, work: &Path, env: &[(String, String)]) -> 
             mpv.display()
         );
     }
-    for library in &libraries {
+    for library in &binaries {
+        let is_library = library.parent() == Some(out.join("lib").as_path());
         match target {
             Target::Ubuntu => {
                 let text = tool_output("readelf", &["-d", &path_arg(library)], env)?;
-                if elf::run_paths(&text) != ["$ORIGIN"] {
-                    bail!("{} must have the run path $ORIGIN only", library.display());
+                let wanted = if is_library {
+                    "$ORIGIN"
+                } else {
+                    "$ORIGIN/../lib"
+                };
+                if elf::run_paths(&text) != [wanted] {
+                    bail!("{} must have the run path {wanted} only", library.display());
                 }
             }
             Target::Macos => {
                 let text = tool_output("otool", &["-L", &path_arg(library)], env)?;
                 let id = inspect::macho_install_name(&text).unwrap_or_default();
-                if !id.starts_with("@rpath/") {
+                if is_library && !id.starts_with("@rpath/") {
                     bail!(
                         "{} has the install name {id}, not @rpath/...",
                         library.display()
                     );
                 }
-                let bad = inspect::macho_absolute_references(&text, true);
+                let bad = inspect::macho_absolute_references(&text, is_library);
                 if !bad.is_empty() {
                     bail!("{} still points at {}", library.display(), bad.join(", "));
                 }
@@ -263,19 +323,78 @@ fn probe_api_version(out: &Path, work: &Path, env: &[(String, String)]) -> Resul
 
 #[cfg(test)]
 mod rpath_tests {
-    use super::rpath_edits;
+    use super::*;
+
+    #[test]
+    fn cleanup_keeps_ffmpeg_ffprobe_and_openh264_shared() {
+        let root = std::env::temp_dir().join(format!("vaio-layout-{}", std::process::id()));
+        fs::create_dir_all(root.join("bin")).unwrap();
+        fs::create_dir_all(root.join("lib")).unwrap();
+        for name in [
+            "bin/ffmpeg",
+            "bin/ffprobe",
+            "lib/libopenh264.so.8",
+            "lib/libopenh264.a",
+        ] {
+            fs::write(root.join(name), b"fixture").unwrap();
+        }
+        remove_unneeded(&root).unwrap();
+        for name in ["bin/ffmpeg", "bin/ffprobe", "lib/libopenh264.so.8"] {
+            assert!(root.join(name).is_file(), "{name} was removed");
+        }
+        assert!(!root.join("lib/libopenh264.a").exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn openh264_license_text_is_checked_before_distribution() {
+        let root =
+            std::env::temp_dir().join(format!("vaio-openh264-license-{}", std::process::id()));
+        let source = crate::libmpv::sources::Source {
+            name: "openh264",
+            version: "2.7.0",
+            url: "https://example.org/openh264",
+            sha256: "",
+            file: "",
+            licenses: &["LICENSE"],
+            nested: None,
+        };
+        let src = source.src_dir(&root);
+        fs::create_dir_all(&src).unwrap();
+        fs::write(src.join("LICENSE"), "unrecognised licence").unwrap();
+        let built = [Built {
+            source: &source,
+            flags: vec![],
+        }];
+        let error = write_licenses(&root.join("out"), &root, &built)
+            .expect_err("an unrecognised OpenH264 licence must be rejected");
+        assert!(error.to_string().contains("OpenH264"), "{error}");
+        fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn relocating_twice_changes_nothing_the_second_time() {
-        assert_eq!(rpath_edits(&[]), (vec![], true));
+        assert_eq!(rpath_edits(&[], "@loader_path"), (vec![], true));
         assert_eq!(
-            rpath_edits(&["/opt/x/lib".to_string()]),
+            rpath_edits(&["/opt/x/lib".to_string()], "@loader_path"),
             (vec!["/opt/x/lib".to_string()], true)
         );
-        assert_eq!(rpath_edits(&["@loader_path".to_string()]), (vec![], false));
         assert_eq!(
-            rpath_edits(&["@loader_path".to_string(), "/opt/y".to_string()]),
+            rpath_edits(&["@loader_path".to_string()], "@loader_path"),
+            (vec![], false)
+        );
+        assert_eq!(
+            rpath_edits(
+                &["@loader_path".to_string(), "/opt/y".to_string()],
+                "@loader_path"
+            ),
             (vec!["/opt/y".to_string()], false)
         );
+    }
+
+    #[test]
+    fn a_relocated_program_needs_no_install_name_tool_call() {
+        assert!(!has_edits(&[]));
+        assert!(has_edits(&["-id".to_string()]));
     }
 }

@@ -3,6 +3,40 @@
 All notable changes to Video All-in-One are written here, newest first. Every version has an
 English part and a Vietnamese part; the update dialog and the GitHub Release show them.
 
+## 0.2.0
+
+### English
+
+Video All-in-One now starts on a computer where nothing else is installed, and updates are safer.
+
+- FFmpeg and FFprobe are included in the installers for macOS, Windows and Ubuntu. You no longer have to install them yourself. If a bundled tool is damaged, the app tells you to reinstall it.
+- Windows: the app opens without a black console window and has its own icon.
+- The main window has a minimum size, so the layout is never squeezed out of shape.
+- If the app cannot start, for example because its data was made by a newer version, it shows a window that says so and where the data is, instead of closing without a word.
+- macOS: one disk image works on both Apple silicon and Intel Macs.
+- Windows updates wait until the app has closed, remove the files of the old version that are no longer needed, and put the old version back if the update fails. The app then tells you that the last update did not finish.
+- Ubuntu updates install the extra packages that a new version needs.
+- If exports are queued or running when you update, the app says how many and lets you update after they finish, update now and stop them, or update later.
+- Precise cut picks an H.264 encoder that the bundled FFmpeg offers, and says so plainly when none is available.
+
+Known limits: the first run of an installer still shows a Gatekeeper warning on macOS or a SmartScreen warning on Windows, because the installers are not signed with a paid certificate. The update from 0.1.0 to this version cannot put the old version back if it fails on Windows, because 0.1.0 did not keep a list of its files.
+
+### Tiếng Việt
+
+Video All-in-One nay chạy được trên máy chưa cài gì thêm, và việc cập nhật an toàn hơn.
+
+- Bộ cài cho macOS, Windows và Ubuntu đã kèm sẵn FFmpeg và FFprobe, bạn không cần tự cài nữa. Nếu một công cụ đi kèm bị hỏng, ứng dụng sẽ báo bạn cài lại.
+- Windows: ứng dụng mở ra không còn cửa sổ console màu đen và có biểu tượng riêng.
+- Cửa sổ chính có kích thước tối thiểu, nên bố cục không bị ép méo.
+- Nếu ứng dụng không khởi động được, ví dụ vì dữ liệu do bản mới hơn tạo ra, ứng dụng hiện một cửa sổ nói rõ điều đó và nơi chứa dữ liệu, thay vì đóng lại không một lời.
+- macOS: một tệp đĩa dùng được cho cả máy Mac chip Apple và Intel.
+- Việc cập nhật trên Windows chờ ứng dụng đóng hẳn, xóa các tệp của bản cũ không còn cần, và khôi phục bản cũ nếu cập nhật lỗi. Khi đó ứng dụng báo rằng lần cập nhật gần nhất chưa hoàn tất.
+- Việc cập nhật trên Ubuntu cài thêm các gói mà bản mới cần.
+- Nếu đang có việc xuất trong hàng đợi hoặc đang chạy khi bạn cập nhật, ứng dụng cho biết số lượng và cho bạn chọn cập nhật sau khi chúng xong, cập nhật ngay và dừng chúng, hoặc để sau.
+- Cắt Chính xác chọn bộ mã hóa H.264 mà FFmpeg đi kèm có, và báo rõ ràng nếu không có bộ nào.
+
+Hạn chế đã biết: lần chạy đầu tiên của bộ cài vẫn hiện cảnh báo Gatekeeper trên macOS hoặc SmartScreen trên Windows, vì bộ cài chưa được ký bằng chứng chỉ trả phí. Việc cập nhật từ 0.1.0 lên bản này không thể khôi phục bản cũ nếu lỗi trên Windows, vì 0.1.0 không giữ danh sách tệp của nó.
+
 ## 0.1.0
 
 ### English

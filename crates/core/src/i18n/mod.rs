@@ -132,13 +132,23 @@ pub enum Text {
     MissingToolFolder,
     MissingToolCheck,
     MissingToolInvalid,
+    MissingToolDamaged,
     UpdateNotSetUp,
     UpdateErrorFileTitle,
+    StartupErrorTitle,
+    StartupNewerData,
+    StartupUnknownDatabase,
+    StartupOther,
+    StartupDataFolder,
+    UpdateJobsRunning,
+    UpdateAfterJobs,
+    UpdateNowStop,
+    UpdateWaitingForJobs,
 }
 
 impl Text {
     /// Every text key, in the same order as the enum.
-    pub const ALL: [Text; 102] = [
+    pub const ALL: [Text; 112] = [
         Text::AppTitle,
         Text::ChooseLanguageTitle,
         Text::ChooseLanguageBody,
@@ -239,8 +249,18 @@ impl Text {
         Text::MissingToolFolder,
         Text::MissingToolCheck,
         Text::MissingToolInvalid,
+        Text::MissingToolDamaged,
         Text::UpdateNotSetUp,
         Text::UpdateErrorFileTitle,
+        Text::StartupErrorTitle,
+        Text::StartupNewerData,
+        Text::StartupUnknownDatabase,
+        Text::StartupOther,
+        Text::StartupDataFolder,
+        Text::UpdateJobsRunning,
+        Text::UpdateAfterJobs,
+        Text::UpdateNowStop,
+        Text::UpdateWaitingForJobs,
     ];
 }
 

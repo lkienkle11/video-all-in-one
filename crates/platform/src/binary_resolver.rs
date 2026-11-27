@@ -56,13 +56,46 @@ pub fn install_hint(tool: Tool, os: &str) -> String {
     )
 }
 
+/// The folder that ships FFmpeg and FFprobe next to the app, when it exists.
+/// `exe` is the running executable and `os` a `std::env::consts::OS` value.
+pub fn bundled_tool_dir(exe: &Path, os: &str) -> Option<PathBuf> {
+    let dir = match os {
+        // <App>.app/Contents/MacOS/<bin> -> <App>.app/Contents/Resources/bin
+        "macos" => exe.parent()?.parent()?.join("Resources").join("bin"),
+        "windows" => exe.parent()?.join("bin"),
+        // <prefix>/bin/<bin> -> <prefix>/lib/<bin>/bin; the package names both after the channel.
+        _ => exe
+            .parent()?
+            .parent()?
+            .join("lib")
+            .join(exe.file_name()?)
+            .join("bin"),
+    };
+    dir.is_dir().then_some(dir)
+}
+
 /// Finds `tool` in `configured_dir` first, then in the entries of `path_var`.
 pub fn resolve_in(
     tool: Tool,
     configured_dir: Option<&Path>,
     path_var: Option<&OsStr>,
 ) -> Result<PathBuf, ResolveError> {
+    resolve_in_with_bundled(tool, None, configured_dir, path_var)
+}
+
+/// Finds `tool` in the bundled folder, then `configured_dir`, then the entries of `path_var`.
+pub fn resolve_in_with_bundled(
+    tool: Tool,
+    bundled: Option<&Path>,
+    configured_dir: Option<&Path>,
+    path_var: Option<&OsStr>,
+) -> Result<PathBuf, ResolveError> {
     let names = candidate_names(tool, cfg!(windows));
+    if let Some(dir) = bundled {
+        if let Some(found) = find_in_dir(dir, &names) {
+            return Ok(found);
+        }
+    }
     if let Some(dir) = configured_dir {
         if !dir.is_absolute() {
             return Err(ResolveError::ConfiguredDirNotAbsolute(dir.to_path_buf()));
@@ -118,9 +151,18 @@ pub fn resolve_tool_paths_in(
     configured_dir: Option<&Path>,
     path_var: Option<&OsStr>,
 ) -> Result<ToolPaths, ResolveError> {
-    let ffmpeg = resolve_in(Tool::Ffmpeg, configured_dir, path_var)?;
-    let ffprobe = resolve_in(Tool::Ffprobe, configured_dir, path_var)?;
-    let yt_dlp = match resolve_in(Tool::YtDlp, configured_dir, path_var) {
+    resolve_tool_paths_in_with_bundled(None, configured_dir, path_var)
+}
+
+/// Like [`resolve_tool_paths_in`], searching the bundled folder first.
+pub fn resolve_tool_paths_in_with_bundled(
+    bundled: Option<&Path>,
+    configured_dir: Option<&Path>,
+    path_var: Option<&OsStr>,
+) -> Result<ToolPaths, ResolveError> {
+    let ffmpeg = resolve_in_with_bundled(Tool::Ffmpeg, bundled, configured_dir, path_var)?;
+    let ffprobe = resolve_in_with_bundled(Tool::Ffprobe, bundled, configured_dir, path_var)?;
+    let yt_dlp = match resolve_in_with_bundled(Tool::YtDlp, bundled, configured_dir, path_var) {
         Ok(path) => Some(path),
         Err(ResolveError::Missing { .. }) => None,
         Err(other) => return Err(other),

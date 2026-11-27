@@ -3,7 +3,7 @@
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
-use crate::domain::export::{CutMode, ExportMode, SupportFile};
+use crate::domain::export::{CutMode, ExportMode, H264Encoder, SupportFile};
 use crate::domain::time::TimeMs;
 use crate::domain::tool::Tool;
 use crate::services::media_planner::{plan_export, ExportRequest};
@@ -354,6 +354,7 @@ fn concat_list_escapes_single_quotes() {
         export: ExportMode::Merged,
         out_dir: Path::new("/out"),
         stem: "it's",
+        precise_encoder: H264Encoder::X264,
     };
     let plan = plan_export(&request, &never).unwrap();
 

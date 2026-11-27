@@ -51,10 +51,31 @@ enum Command {
         #[arg(long)]
         file: PathBuf,
     },
+    /// Fails unless the Windows executable is a GUI program (no console window).
+    CheckPe {
+        #[arg(long)]
+        file: PathBuf,
+        /// Requires the GUI subsystem.
+        #[arg(long)]
+        gui: bool,
+    },
     /// Builds and packs our own LGPL libmpv (see docs/RELEASING.md, "Our own libmpv").
     Libmpv {
         #[command(subcommand)]
         command: libmpv::Command,
+    },
+    /// macOS: joins the Apple silicon and the Intel disk image into one universal disk image.
+    Universal {
+        #[arg(long)]
+        arm_dmg: PathBuf,
+        #[arg(long)]
+        intel_dmg: PathBuf,
+        #[arg(long)]
+        out: PathBuf,
+        #[arg(long)]
+        version: String,
+        #[arg(long, value_enum, default_value = "production")]
+        channel: package::BuildChannel,
     },
     /// Builds the installer and the update artifact of one OS from a built production binary.
     Package {
@@ -72,6 +93,9 @@ enum Command {
         /// Windows only: the folder with libmpv-2.dll and the DLLs it needs.
         #[arg(long)]
         libs: Option<PathBuf>,
+        /// Windows only: the folder with ffmpeg.exe, ffprobe.exe and their DLLs (default: `--libs`).
+        #[arg(long)]
+        tools: Option<PathBuf>,
         /// macOS and Ubuntu: the folder of our own libmpv build (`cargo xtask libmpv build`).
         #[arg(long)]
         libmpv_dir: Option<PathBuf>,
@@ -79,6 +103,10 @@ enum Command {
         /// for a binary cross-compiled on another Mac; it decides the platform key of the package.
         #[arg(long)]
         arch: Option<String>,
+        /// `dev` builds the development installer (own name, identifier and icon, no update
+        /// artifact, never signed); `production` is the release.
+        #[arg(long, value_enum, default_value = "production")]
+        channel: package::BuildChannel,
         /// Local testing only: lets GPL or non-free libraries into the package, with a warning.
         #[arg(long = "allow-gpl-for-local-testing")]
         allow_gpl: bool,
@@ -110,14 +138,23 @@ fn main() -> Result<()> {
         Command::LangShare { min } => lang_share::run(&root, min),
         Command::SetVersion { version } => set_version::set_version(&root, &version),
         Command::CheckRelease { tag, latest } => check_release::check_release(&root, &tag, &latest),
+        Command::Universal {
+            arm_dmg,
+            intel_dmg,
+            out,
+            version,
+            channel,
+        } => package::universal::run(&arm_dmg, &intel_dmg, &out, &version, channel),
         Command::Package {
             target,
             version,
             out,
             binary,
             libs,
+            tools,
             libmpv_dir,
             arch,
+            channel,
             allow_gpl,
         } => package::run(
             &root,
@@ -127,11 +164,14 @@ fn main() -> Result<()> {
                 out,
                 binary,
                 libs,
+                tools,
                 libmpv_dir,
                 arch,
+                channel,
                 allow_gpl,
             },
         ),
+        Command::CheckPe { file, gui } => package::check_pe(&file, gui),
         Command::Libmpv { command } => libmpv::run(command),
         Command::Keygen { out } => keygen::run(&out),
         Command::Sign { file } => sign::run(&file),

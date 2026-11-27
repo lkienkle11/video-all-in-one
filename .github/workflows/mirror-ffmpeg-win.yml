@@ -1,0 +1,58 @@
+# Copies the verified LGPL shared FFmpeg for Windows (BtbN/FFmpeg-Builds) into a release of this
+# repository, because BtbN keeps a build for only about 14 days. Run once by hand (Actions >
+# Mirror FFmpeg for Windows > Run workflow). It refuses a file whose SHA-256 differs from the
+# pinned value, and it never overwrites an existing release.
+name: Mirror FFmpeg for Windows
+
+# It also runs when this file is pushed to a fix/** branch, because a workflow that only has
+# workflow_dispatch cannot be started from a branch that is not the default branch yet. Running
+# twice is harmless: an existing release is never overwritten.
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - "fix/**"
+    paths:
+      - ".github/workflows/mirror-ffmpeg-win.yml"
+
+permissions:
+  contents: write
+
+env:
+  SOURCE_URL: "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-11-26-12-56/ffmpeg-n8.1.3-41-ga8029b6528-win64-lgpl-shared-8.1.zip"
+  FILE_NAME: "ffmpeg-n8.1.3-41-ga8029b6528-win64-lgpl-shared-8.1.zip"
+  SHA256: "372016b1248544b4ffc290ae41c9c57e6441bd0da32068ea18032a25b7b36e08"
+  TAG: "ffmpeg-win-1"
+
+jobs:
+  mirror:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Download and verify
+        run: |
+          set -euo pipefail
+          curl --fail --location --retry 3 --output "$FILE_NAME" "$SOURCE_URL"
+          echo "$SHA256  $FILE_NAME" | sha256sum --check -
+      - name: Check the build is LGPL with OpenH264
+        run: |
+          set -euo pipefail
+          unzip -q "$FILE_NAME" -d unpacked
+          exe="$(find unpacked -name ffmpeg.exe | head -n 1)"
+          grep -a -q -e '--enable-libopenh264' "$exe"
+          grep -a -q -e '--enable-version3' "$exe"
+          if grep -a -q -e '--enable-gpl' -e '--enable-nonfree' -e '--enable-libx264' "$exe"; then
+            echo "::error::this FFmpeg is GPL or non-free"; exit 1
+          fi
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "::error::the release $TAG already exists; it is never overwritten"; exit 1
+          fi
+          gh release create "$TAG" "$FILE_NAME" \
+            --title "FFmpeg for Windows (LGPL, shared)" \
+            --notes "Copy of $SOURCE_URL. SHA-256 $SHA256. LGPL v3 with OpenH264 (no GPL, no x264). Source: https://github.com/FFmpeg/FFmpeg and the build scripts in https://github.com/BtbN/FFmpeg-Builds. Pinned by release.yml." \
+            --latest=false

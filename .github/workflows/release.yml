@@ -1,5 +1,6 @@
 # Runs when a tag v* is pushed: checks the tag, tests and builds on every OS, packages, signs the
-# update artifacts, writes latest.json and publishes ONE GitHub Release.
+# update artifacts, writes latest.json and publishes the GitHub Release, then a second, separate
+# pre-release dev-v<version> with the development installers (never signed, never "latest").
 # The signing secret is available only to the signing step of the last job.
 name: Release
 
@@ -30,16 +31,21 @@ env:
   # Overrides rust-toolchain.toml (channel "stable") so every run uses the same compiler.
   RUSTUP_TOOLCHAIN: "1.99.1"
   # macOS and Ubuntu: our own LGPL libmpv, built by build-libmpv.yml and published as assets of the
-  # release libmpv-1. LIBMPV_RECIPE must equal RECIPE_VERSION in xtask/src/libmpv/sources.rs.
+  # release libmpv-2. LIBMPV_RECIPE must equal RECIPE_VERSION in xtask/src/libmpv/sources.rs.
   # Replace each PENDING value with the SHA-256 the Build libmpv workflow prints for that archive.
-  LIBMPV_RECIPE: "1"
-  LIBMPV_URL_BASE: "https://github.com/${{ github.repository }}/releases/download/libmpv-1"
-  LIBMPV_SHA256_LINUX_X86_64: "b4ecd5b0ab384c10b2d591269d19d6a9032bab8dfb99a46be9b7dfbeaadab6cf"
-  LIBMPV_SHA256_MACOS_ARM64: "3fcd870e37c956372165f6dc3d3f92264a28610406a2840dcd611e52c8ebacfc"
-  LIBMPV_SHA256_MACOS_X86_64: "59f6bb2c161ca3a20066aa8c8a2cb327fe0984cd9357760e03ebf517f9ad3217"
+  LIBMPV_RECIPE: "2"
+  LIBMPV_URL_BASE: "https://github.com/${{ github.repository }}/releases/download/libmpv-2"
+  LIBMPV_SHA256_LINUX_X86_64: "4ef741fd7df2b2b21c9dc5b6e2af7c96dba7223a3e8a0d6de64e990361826ea7"
+  LIBMPV_SHA256_MACOS_ARM64: "b0cb14c108991fa4b0c7496671f7335ee2adb9390adf9492b8b4beacaaab6e7c"
+  LIBMPV_SHA256_MACOS_X86_64: "ba8b537cac93dd7d371484a58ab1d4530468537d1adf27f68fc1ee187d4849ed"
   # Windows only: libmpv for Windows from the LGPL build of zhongfly/mpv-winbuild.
   MPV_WIN_URL: "https://github.com/zhongfly/mpv-winbuild/releases/download/2026-11-23-35efcf53d5/mpv-dev-lgpl-x86_64-20261123-git-35efcf53d5.7z"
   MPV_WIN_SHA256: "029892b3c3951bbb738d05a338698d330e0682b767ff7c142a4da68da68c175a"
+  # Windows only: the LGPL shared FFmpeg of BtbN/FFmpeg-Builds (libopenh264, no GPL, no x264).
+  # BtbN keeps a build for only about 14 days, so the verified zip is copied to a release of this
+  # repository (tag ffmpeg-win-1) and pinned by its SHA-256 (docs/RELEASING.md).
+  FFMPEG_WIN_URL: "https://github.com/${{ github.repository }}/releases/download/ffmpeg-win-1/ffmpeg-n8.1.3-41-ga8029b6528-win64-lgpl-shared-8.1.zip"
+  FFMPEG_WIN_SHA256: "372016b1248544b4ffc290ae41c9c57e6441bd0da32068ea18032a25b7b36e08"
 
 jobs:
   verify:
@@ -144,7 +150,7 @@ jobs:
           restore-keys: |
             cargo-release-${{ matrix.name }}-${{ env.RUSTUP_TOOLCHAIN }}-
 
-      # macOS and Ubuntu: our own LGPL libmpv from the release libmpv-1 (built by
+      # macOS and Ubuntu: our own LGPL libmpv from the release libmpv-2 (built by
       # build-libmpv.yml). The archive is checked against the pinned SHA-256 before it is unpacked.
       # RUSTFLAGS replaces the Homebrew entries of .cargo/config.toml, which stay for local work.
       - name: Install the pinned libmpv (macOS and Ubuntu)
@@ -198,7 +204,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            build-essential pkg-config clang cmake \
+            build-essential pkg-config clang cmake patchelf \
             libasound2-dev libfontconfig-dev libwayland-dev libx11-xcb-dev \
             libxkbcommon-x11-dev libvulkan1 libzstd-dev
 
@@ -232,6 +238,30 @@ jobs:
           "MPV_DIR=$dir" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
           $dir | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
 
+      - name: Install FFmpeg and FFprobe (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $archive = Join-Path $env:RUNNER_TEMP 'ffmpeg-win.zip'
+          $dir = Join-Path $env:RUNNER_TEMP 'ffmpeg-win'
+          Invoke-WebRequest -Uri $env:FFMPEG_WIN_URL -OutFile $archive
+          $hash = (Get-FileHash $archive -Algorithm SHA256).Hash.ToLower()
+          if ($hash -ne $env:FFMPEG_WIN_SHA256) { throw "FFmpeg archive has SHA-256 $hash, expected $env:FFMPEG_WIN_SHA256" }
+          Expand-Archive $archive -DestinationPath $dir -Force
+          $bin = Get-ChildItem $dir -Recurse -Filter ffmpeg.exe | Select-Object -First 1 | ForEach-Object { $_.DirectoryName }
+          if (-not $bin -or -not (Test-Path (Join-Path $bin 'ffprobe.exe'))) { throw 'ffmpeg.exe and ffprobe.exe are not in the archive' }
+          $tools = Join-Path $env:RUNNER_TEMP 'ffmpeg-tools'
+          New-Item -ItemType Directory -Force $tools | Out-Null
+          Get-ChildItem $bin -File | Where-Object { $_.Name -in 'ffmpeg.exe','ffprobe.exe' -or $_.Extension -eq '.dll' } | Copy-Item -Destination $tools
+          # The licence text and where the matching source is, as the LGPL asks.
+          $licenses = Join-Path $env:MPV_DIR 'LICENSES'
+          New-Item -ItemType Directory -Force $licenses | Out-Null
+          $licenseFile = Get-ChildItem $dir -Recurse -Filter LICENSE.txt | Select-Object -First 1
+          Copy-Item $licenseFile.FullName (Join-Path $licenses 'ffmpeg-LICENSE.txt')
+          "FFmpeg n8.1.3-41-ga8029b6528 (LGPL v3, with OpenH264). Source: https://github.com/FFmpeg/FFmpeg and the build scripts in https://github.com/BtbN/FFmpeg-Builds" | Set-Content -Encoding ascii (Join-Path $licenses 'ffmpeg-SOURCE.txt')
+          "FFMPEG_DIR=$tools" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+
       # No tests here: ci.yml runs every test on every pull request and on every push to main, and
       # a release is tagged on a commit that passed it. Running them again doubled the build time.
 
@@ -254,6 +284,11 @@ jobs:
           else
             cargo build --locked --release -p vaio-desktop --features production
           fi
+
+      # The Windows app must be a GUI program, or it opens a console window next to the app.
+      - name: Check that the Windows app has no console (Windows)
+        if: matrix.target == 'windows'
+        run: cargo xtask check-pe --file target/release/vaio-desktop.exe --gui
 
       - name: Package (macOS)
         if: matrix.target == 'macos'
@@ -278,7 +313,7 @@ jobs:
 
       - name: Package (Windows)
         if: matrix.target == 'windows'
-        run: cargo xtask package --target windows --out dist --libs "$MPV_DIR"
+        run: cargo xtask package --target windows --out dist --libs "$MPV_DIR" --tools "$FFMPEG_DIR"
 
       # Smoke checks on the package that was just made. They show what the installer does on a
       # clean runner; they are not a replacement for installing on a real machine.
@@ -287,8 +322,13 @@ jobs:
         run: |
           app="dist/stage-macos/Video All-in-One.app"
           codesign --verify --deep --strict "$app"
+          # The cross-built Intel tools cannot start on the Apple Silicon runner without Rosetta.
+          if [ -z "${{ matrix.rust_target }}" ]; then
+            DYLD_LIBRARY_PATH= DYLD_FALLBACK_LIBRARY_PATH= "$app/Contents/Resources/bin/ffmpeg" -version
+            DYLD_LIBRARY_PATH= DYLD_FALLBACK_LIBRARY_PATH= "$app/Contents/Resources/bin/ffprobe" -version
+          fi
           status=0
-          for file in "$app/Contents/MacOS/video-all-in-one" "$app"/Contents/Frameworks/*.dylib; do
+          for file in "$app/Contents/MacOS/video-all-in-one" "$app"/Contents/Resources/bin/* "$app"/Contents/Frameworks/*.dylib; do
             if otool -L "$file" | tail -n +2 | grep -E "/opt/homebrew|/usr/local"; then
               echo "::error::$file still points at the build machine"
               status=1
@@ -315,6 +355,10 @@ jobs:
           dpkg-deb --contents dist/video-all-in-one-*-linux-x86_64.deb
           # apt resolves the Depends: line of the package, which proves it can be installed.
           sudo apt-get install -y ./dist/video-all-in-one-*-linux-x86_64.deb
+          extracted="$RUNNER_TEMP/package-smoke"
+          dpkg-deb --extract dist/video-all-in-one-*-linux-x86_64.deb "$extracted"
+          LD_LIBRARY_PATH= "$extracted/usr/lib/video-all-in-one/bin/ffmpeg" -version
+          LD_LIBRARY_PATH= "$extracted/usr/lib/video-all-in-one/bin/ffprobe" -version
           test -x /usr/bin/video-all-in-one
           test -f /usr/share/applications/video-all-in-one.desktop
           test -e /usr/lib/video-all-in-one/libmpv.so.2
@@ -347,6 +391,10 @@ jobs:
           $dir = Join-Path $env:LOCALAPPDATA 'Programs\Video All-in-One'
           if (-not (Test-Path (Join-Path $dir 'video-all-in-one.exe'))) { throw 'the app was not installed' }
           if (-not (Test-Path (Join-Path $dir 'libmpv-2.dll'))) { throw 'libmpv-2.dll was not installed' }
+          & (Join-Path $dir 'bin\ffmpeg.exe') -version
+          if ($LASTEXITCODE -ne 0) { throw 'the installed FFmpeg did not run' }
+          & (Join-Path $dir 'bin\ffprobe.exe') -version
+          if ($LASTEXITCODE -ne 0) { throw 'the installed FFprobe did not run' }
           # A silent install starts the app, as it does after an update.
           Stop-Process -Name 'video-all-in-one' -Force -ErrorAction SilentlyContinue
           Start-Sleep -Seconds 2
@@ -357,6 +405,49 @@ jobs:
           while ((Test-Path (Join-Path $dir 'video-all-in-one.exe')) -and ((Get-Date) -lt $deadline)) { Start-Sleep -Seconds 2 }
           if (Test-Path (Join-Path $dir 'video-all-in-one.exe')) { throw 'the app was not removed' }
 
+      # The development build: the same commit without the `production` feature (so it has its own
+      # name, data folder and icon, and never checks for updates). It is built after the production
+      # app was packaged and checked, because it overwrites target/*/release/vaio-desktop. Only an
+      # installer comes out of it, named video-all-in-one-<version>-dev-<platform>.<ext>.
+      - name: Build the development app
+        run: |
+          if [ "$RUNNER_OS" = Linux ]; then
+            export RUSTFLAGS="-L native=$LIBMPV_DIR/lib -C link-arg=-Wl,-rpath-link,$LIBMPV_DIR/lib -C link-arg=-Wl,-rpath,\$ORIGIN/../lib/video-all-in-one-dev"
+          fi
+          if [ -n "${{ matrix.rust_target }}" ]; then
+            cargo build --locked --release --target "${{ matrix.rust_target }}" -p vaio-desktop
+          else
+            cargo build --locked --release -p vaio-desktop
+          fi
+
+      - name: Check that the Windows development app has no console (Windows)
+        if: matrix.target == 'windows'
+        run: cargo xtask check-pe --file target/release/vaio-desktop.exe --gui
+
+      - name: Package the development app (macOS)
+        if: matrix.target == 'macos'
+        run: |
+          if [ -n "${{ matrix.rust_target }}" ]; then
+            cargo xtask package --target macos --channel dev --out dist --libmpv-dir "$LIBMPV_DIR" \
+              --arch "${{ matrix.arch }}" --binary "target/${{ matrix.rust_target }}/release/vaio-desktop"
+          else
+            cargo xtask package --target macos --channel dev --out dist --libmpv-dir "$LIBMPV_DIR"
+          fi
+
+      - name: Package the development app (Ubuntu)
+        if: matrix.target == 'ubuntu'
+        run: cargo xtask package --target ubuntu --channel dev --out dist --libmpv-dir "$LIBMPV_DIR"
+
+      - name: Package the development app (Windows)
+        if: matrix.target == 'windows'
+        run: cargo xtask package --target windows --channel dev --out dist --libs "$MPV_DIR" --tools "$FFMPEG_DIR"
+
+      - name: Check that the development installer exists
+        run: |
+          set -eu
+          ls dist/video-all-in-one-*-dev-*
+          test "$(ls dist/video-all-in-one-*-dev-* | wc -l)" -eq 1
+
       - name: Keep the installers and update artifacts
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -365,9 +456,80 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  # One disk image for macOS that runs on Apple silicon and Intel: the two per-CPU disk images are
+  # joined file by file (lipo). The update zips stay per CPU; the app updates itself from them.
+  macos-universal:
+    name: universal macOS disk image
+    needs: build
+    if: ${{ !cancelled() && needs.build.result == 'success' }}
+    runs-on: macos-15
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install the pinned Rust toolchain
+        run: rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal --no-self-update
+
+      - name: Download the two macOS packages
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: package-macos-*
+          merge-multiple: true
+          path: dist
+
+      - name: Join them (production and development)
+        run: |
+          set -eu
+          for channel in production dev; do
+            if [ "$channel" = dev ]; then
+              arm=$(ls dist/video-all-in-one-*-dev-macos-aarch64.dmg)
+              suffix="-dev-macos-aarch64.dmg"
+            else
+              arm=$(ls dist/video-all-in-one-*-macos-aarch64.dmg | grep -v -- '-dev-')
+              suffix="-macos-aarch64.dmg"
+            fi
+            intel="${arm%aarch64.dmg}x86_64.dmg"
+            version="${arm#dist/video-all-in-one-}"
+            version="${version%"$suffix"}"
+            test -f "$arm"
+            test -f "$intel"
+            cargo xtask universal --arm-dmg "$arm" --intel-dmg "$intel" --out dist \
+              --version "$version" --channel "$channel"
+          done
+
+      - name: Check that both CPUs are in the app and in the bundled tools
+        run: |
+          set -eu
+          for app in dist/stage-macos-universal/*.app dist/stage-macos-universal-dev/*.app; do
+            test -d "$app"
+            for file in "$app"/Contents/MacOS/* "$app"/Contents/Resources/bin/*; do
+              archs=$(lipo -archs "$file")
+              case "$archs" in
+                *arm64*x86_64*|*x86_64*arm64*) ;;
+                *) echo "::error::$file has only: $archs"; exit 1 ;;
+              esac
+            done
+            codesign --verify --deep --strict "$app"
+          done
+          ls dist/video-all-in-one-*-macos-universal.dmg
+
+      - name: Keep the universal disk images
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: package-macos-universal
+          path: dist/video-all-in-one-*-macos-universal.dmg
+          if-no-files-found: error
+          retention-days: 7
+
   publish:
     name: sign and publish
-    needs: [verify, build]
+    needs: [verify, build, macos-universal]
     if: github.ref_type == 'tag'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -405,13 +567,17 @@ jobs:
           path: dist
 
       # The key is read from the environment by xtask and is never printed.
+      # Only the production files are signed: each name is built from the version, so the
+      # development installers (video-all-in-one-<version>-dev-...) can never be picked up.
       - name: Sign the update artifacts
         env:
           UPDATE_SIGNING_KEY: ${{ secrets.UPDATE_SIGNING_KEY }}
+          TAG: ${{ github.ref_name }}
         run: |
           set -eu
           for pattern in macos-aarch64.zip macos-x86_64.zip windows-x86_64.exe linux-x86_64.deb; do
-            file=$(ls dist/video-all-in-one-*-"$pattern")
+            file="dist/video-all-in-one-${TAG#v}-$pattern"
+            test -f "$file"
             cargo xtask sign --file "$file"
           done
 
@@ -432,11 +598,47 @@ jobs:
           jq -r '"## English\n\n" + .notes_en + "\n\n## Tiếng Việt\n\n" + .notes_vi' dist/latest.json > release-notes.md
 
       # A draft is filled first and published last, so nobody sees a release with missing files.
-      - name: Publish one GitHub Release
+      # The release holds no development file.
+      - name: Publish the GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
         run: |
-          gh release create "$TAG" dist/video-all-in-one-* dist/latest.json \
+          set -eu
+          files=()
+          for file in dist/video-all-in-one-*; do
+            case "$file" in
+              *-dev-*) ;;
+              *-macos-aarch64.dmg | *-macos-x86_64.dmg) ;;
+              *) files+=("$file") ;;
+            esac
+          done
+          gh release create "$TAG" "${files[@]}" dist/latest.json \
             --draft --verify-tag --title "Video All-in-One ${TAG#v}" --notes-file release-notes.md
           gh release edit "$TAG" --draft=false --latest
+
+      # The development pre-release is tagged dev-v<version>, not v<version>-dev: this workflow
+      # runs on every pushed tag v*, so a tag that starts with v would start it again. It holds
+      # only the development installers, is never "latest" (releases/latest/download/latest.json
+      # keeps pointing at the production release) and has no latest.json, so it never updates.
+      - name: Publish the development pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -eu
+          VERSION="${TAG#v}"
+          files=()
+          for file in dist/video-all-in-one-*-dev-*; do
+            test -f "$file"
+            case "$file" in
+              *-macos-aarch64.dmg | *-macos-x86_64.dmg) ;;
+              *) files+=("$file") ;;
+            esac
+          done
+          # One installer per OS: the universal macOS disk image, Windows and Ubuntu.
+          test "${#files[@]}" -eq 3
+          gh release create "dev-v${VERSION}" "${files[@]}" \
+            --target "$GITHUB_SHA" --prerelease --latest=false \
+            --title "Video All-in-One ${VERSION} (development build)" \
+            --notes "A development build for testers, made from the same commit as v${VERSION}. It does not update itself and uses its own data folder, so it can be installed next to the production app. Install it by hand."

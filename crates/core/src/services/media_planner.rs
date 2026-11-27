@@ -3,7 +3,9 @@
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
-use crate::domain::export::{CutMode, ExportMode, ExportPlan, PlanError, PlanStep, SupportFile};
+use crate::domain::export::{
+    CutMode, ExportMode, ExportPlan, H264Encoder, PlanError, PlanStep, SupportFile,
+};
 use crate::domain::media::MediaInfo;
 use crate::domain::segment::Segment;
 use crate::domain::time::TimeMs;
@@ -25,6 +27,17 @@ pub struct ExportRequest<'a> {
     pub out_dir: &'a Path,
     /// The file name without extension.
     pub stem: &'a str,
+    /// The H.264 encoder a precise cut uses; a fast cut ignores it.
+    pub precise_encoder: H264Encoder,
+}
+
+/// The video bitrate for encoders without a quality setting: three bits per pixel
+/// per second of frame area, kept between 1.5 and 20 Mbit/s.
+pub fn video_bitrate_bps(width: u32, height: u32) -> u32 {
+    let bits = u64::from(width)
+        .saturating_mul(u64::from(height))
+        .saturating_mul(3);
+    bits.clamp(1_500_000, 20_000_000) as u32
 }
 
 /// Plans an export. `exists` tells whether a path is already taken.
@@ -256,15 +269,26 @@ fn segment_args(request: &ExportRequest<'_>, segment: &Segment, output: &Path) -
             );
         }
         CutMode::Precise => {
-            if info.video.is_some() {
+            if let Some(video) = &info.video {
                 args.extend(["-map", "0:v:0", "-map", "0:a?"].map(OsString::from));
-                args.extend(
-                    [
-                        "-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-pix_fmt",
-                        "yuv420p",
-                    ]
-                    .map(OsString::from),
-                );
+                args.extend(["-c:v"].map(OsString::from));
+                args.push(request.precise_encoder.ffmpeg_name().into());
+                match request.precise_encoder {
+                    H264Encoder::X264 => {
+                        args.extend(["-preset", "veryfast", "-crf", "18"].map(OsString::from));
+                    }
+                    H264Encoder::OpenH264
+                    | H264Encoder::MediaFoundation
+                    | H264Encoder::VideoToolbox => {
+                        args.extend(["-b:v"].map(OsString::from));
+                        args.push(
+                            video_bitrate_bps(video.width, video.height)
+                                .to_string()
+                                .into(),
+                        );
+                    }
+                }
+                args.extend(["-pix_fmt", "yuv420p"].map(OsString::from));
             } else {
                 args.extend(["-map", "0:a"].map(OsString::from));
             }
@@ -288,3 +312,9 @@ fn concat_list(pieces: &[PathBuf]) -> String {
         })
         .collect()
 }
+
+// Uses the Unix-path fixtures, like `media_planner_tests`, so it does not build on Windows. The
+// picker takes the OS as a parameter, so these tests still check its Windows rules on Unix.
+#[cfg(all(test, unix))]
+#[path = "media_planner_encoder_tests.rs"]
+mod encoder_tests;

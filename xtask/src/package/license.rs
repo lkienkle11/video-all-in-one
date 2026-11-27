@@ -1,6 +1,7 @@
 //! The license gate of the packagers: release packages may bundle only LGPL builds of libmpv
 //! and FFmpeg. An FFmpeg library records its configure line, so a GPL or non-free build can be
-//! recognized by `--enable-gpl` or `--enable-nonfree` in its bytes; the GPL codec libraries are
+//! recognized by `--enable-gpl`, `--enable-nonfree` or `--enable-libx264` in its bytes;
+//! the same scan covers bundled FFmpeg and FFprobe executables. The GPL codec libraries are
 //! recognized by their file names. libmpv has no such marker, so it is not checked here.
 
 use anyhow::{bail, Context, Result};
@@ -12,10 +13,30 @@ use std::path::{Path, PathBuf};
 pub(crate) const ALLOW_GPL_FLAG: &str = "--allow-gpl-for-local-testing";
 
 /// Configure options that make an FFmpeg build GPL or non-free, with what each one means.
-const FORBIDDEN_FLAGS: [(&str, &str); 2] = [
+const FORBIDDEN_FLAGS: [(&str, &str); 3] = [
     ("--enable-gpl", "a GPL build of FFmpeg"),
     ("--enable-nonfree", "a non-free build of FFmpeg"),
+    ("--enable-libx264", "a GPL libx264 encoder in FFmpeg"),
 ];
+
+/// Requires both tools and scans their embedded configuration without executing foreign code.
+pub(super) fn bundled_tools(from: &Path, windows: bool, allow_gpl: bool) -> Result<[PathBuf; 2]> {
+    let names = if windows {
+        ["ffmpeg.exe", "ffprobe.exe"]
+    } else {
+        ["ffmpeg", "ffprobe"]
+    };
+    let tools = names.map(|name| from.join(name));
+    for tool in &tools {
+        if !tool.is_file() {
+            bail!("required bundled tool {} is missing; provide FFmpeg and FFprobe from the LGPL build", tool.display());
+        }
+    }
+    for warning in check_bundle_license(&tools, allow_gpl)? {
+        println!("warning: {warning}");
+    }
+    Ok(tools)
+}
 
 /// File name prefixes of GPL or non-free codec libraries.
 const GPL_LIBRARY_PREFIXES: [&str; 5] =
@@ -168,6 +189,65 @@ mod tests {
         bytes.extend_from_slice(contents.as_bytes());
         bytes.extend_from_slice(&[0, 9, 8]);
         bytes
+    }
+
+    #[test]
+    fn package_whose_ffmpeg_lists_libx264_is_refused() {
+        let dir = TempDir::new();
+        let file = dir.file("ffmpeg", &library("--enable-libx264"));
+        let error = check_bundle_license(&[file], false)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("--enable-libx264"), "{error}");
+    }
+
+    #[test]
+    fn package_without_tools_is_refused() {
+        let dir = TempDir::new();
+        let binary = dir.file("app", b"fixture");
+        for missing in ["ffmpeg.exe", "ffprobe.exe"] {
+            let libs = dir.0.join(missing);
+            std::fs::create_dir_all(&libs).unwrap();
+            let present = if missing == "ffmpeg.exe" {
+                "ffprobe.exe"
+            } else {
+                "ffmpeg.exe"
+            };
+            std::fs::write(libs.join(present), b"fixture").unwrap();
+            let error = super::super::nsis::build(
+                &dir.0,
+                &binary,
+                &dir.0.join("out"),
+                &super::super::Release::production("1.2.3", "windows-x86_64"),
+                Some(&libs),
+                None,
+                false,
+            )
+            .unwrap_err()
+            .to_string();
+            assert!(
+                error.contains("required bundled tool") && error.contains(missing),
+                "missing {missing}: {error}"
+            );
+        }
+    }
+
+    #[test]
+    fn gpl_ffmpeg_exe_is_refused() {
+        let dir = super::super::tests::ToolFixture::new();
+        std::fs::write(dir.0.join("ffmpeg.exe"), library("--enable-gpl")).unwrap();
+        let error = super::super::nsis::build(
+            &dir.0,
+            &dir.0.join("app"),
+            &dir.0.join("out"),
+            &super::super::Release::production("1.2.3", "windows-x86_64"),
+            Some(&dir.0),
+            None,
+            false,
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(error.contains("--enable-gpl"), "{error}");
     }
 
     #[test]

@@ -2,6 +2,7 @@
 name = "vaio-desktop"
 version.workspace = true
 edition.workspace = true
+build = "build.rs"
 
 [dependencies]
 gpui-kit.workspace = true
@@ -11,6 +12,9 @@ vaio-media = { path = "../../crates/media" }
 vaio-storage = { path = "../../crates/storage" }
 tokio.workspace = true
 tokio-util.workspace = true
+
+[target.'cfg(windows)'.build-dependencies]
+winresource = "0.1"
 
 [features]
 production = ["vaio-platform/production"]
