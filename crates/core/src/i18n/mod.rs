@@ -140,11 +140,15 @@ pub enum Text {
     StartupUnknownDatabase,
     StartupOther,
     StartupDataFolder,
+    UpdateJobsRunning,
+    UpdateAfterJobs,
+    UpdateNowStop,
+    UpdateWaitingForJobs,
 }
 
 impl Text {
     /// Every text key, in the same order as the enum.
-    pub const ALL: [Text; 108] = [
+    pub const ALL: [Text; 112] = [
         Text::AppTitle,
         Text::ChooseLanguageTitle,
         Text::ChooseLanguageBody,
@@ -253,6 +257,10 @@ impl Text {
         Text::StartupUnknownDatabase,
         Text::StartupOther,
         Text::StartupDataFolder,
+        Text::UpdateJobsRunning,
+        Text::UpdateAfterJobs,
+        Text::UpdateNowStop,
+        Text::UpdateWaitingForJobs,
     ];
 }
 

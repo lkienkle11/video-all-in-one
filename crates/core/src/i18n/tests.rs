@@ -16,6 +16,44 @@ fn every_text_has_non_empty_english_and_vietnamese() {
 }
 
 #[test]
+fn every_new_text_exists_in_both_languages() {
+    for (text, english, vietnamese) in [
+        (
+            Text::UpdateJobsRunning,
+            "{0} exports are still running. Updating now stops them.",
+            "Đang có {0} lần xuất chưa xong. Cập nhật ngay sẽ dừng chúng.",
+        ),
+        (
+            Text::UpdateAfterJobs,
+            "Update after they finish",
+            "Cập nhật sau khi xong",
+        ),
+        (
+            Text::UpdateNowStop,
+            "Update now and stop them",
+            "Cập nhật ngay và dừng chúng",
+        ),
+        (
+            Text::UpdateWaitingForJobs,
+            "Waiting for the exports to finish…",
+            "Đang chờ các lần xuất hoàn tất…",
+        ),
+    ] {
+        assert!(Text::ALL.contains(&text));
+        assert_eq!(tr(Language::English, text), english);
+        assert_eq!(tr(Language::Vietnamese, text), vietnamese);
+    }
+    assert_eq!(
+        tr_fmt(Language::English, Text::UpdateJobsRunning, &["3"]),
+        "3 exports are still running. Updating now stops them."
+    );
+    assert_eq!(
+        tr_fmt(Language::Vietnamese, Text::UpdateJobsRunning, &["3"]),
+        "Đang có 3 lần xuất chưa xong. Cập nhật ngay sẽ dừng chúng."
+    );
+}
+
+#[test]
 fn vietnamese_differs_from_english_for_every_text_except_app_title() {
     for text in Text::ALL {
         // The app name and the language names are the same word in both languages.
@@ -216,6 +254,10 @@ fn index(t: Text) -> usize {
         Text::StartupUnknownDatabase => 105,
         Text::StartupOther => 106,
         Text::StartupDataFolder => 107,
+        Text::UpdateJobsRunning => 108,
+        Text::UpdateAfterJobs => 109,
+        Text::UpdateNowStop => 110,
+        Text::UpdateWaitingForJobs => 111,
     }
 }
 
@@ -229,7 +271,7 @@ fn text_all_lists_every_variant_in_enum_order() {
         );
     }
     // The last variant has the highest index.
-    let highest = index(Text::StartupDataFolder);
+    let highest = index(Text::UpdateWaitingForJobs);
     assert_eq!(
         Text::ALL.len(),
         highest + 1,
