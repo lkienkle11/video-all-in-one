@@ -90,10 +90,21 @@ fn initialize(runtime: &Runtime, channel: Channel) -> Result<AppState, String> {
             // An empty executable is deliberately unusable. Missing tools must not block the shell.
             // The folder the user chose last time is searched before the PATH.
             let tool_dir = SettingsStore::load(&directory).tool_dir;
-            let ffmpeg = binary_resolver::resolve(Tool::Ffmpeg, tool_dir.as_deref())
-                .unwrap_or_else(|_| PathBuf::new());
-            let ffprobe = binary_resolver::resolve(Tool::Ffprobe, tool_dir.as_deref())
-                .unwrap_or_else(|_| PathBuf::new());
+            let bundled = std::env::current_exe()
+                .ok()
+                .and_then(|exe| binary_resolver::bundled_tool_dir(&exe, std::env::consts::OS));
+            let path = std::env::var_os("PATH");
+            let find = |tool| {
+                binary_resolver::resolve_in_with_bundled(
+                    tool,
+                    bundled.as_deref(),
+                    tool_dir.as_deref(),
+                    path.as_deref(),
+                )
+                .unwrap_or_else(|_| PathBuf::new())
+            };
+            let ffmpeg = find(Tool::Ffmpeg);
+            let ffprobe = find(Tool::Ffprobe);
             Ok::<_, String>((store, ToolPathsCell::new(FfmpegPaths { ffmpeg, ffprobe })))
         })
         .await

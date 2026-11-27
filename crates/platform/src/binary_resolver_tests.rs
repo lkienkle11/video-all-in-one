@@ -345,3 +345,6 @@ fn none_path_var_with_no_configured_dir_is_missing() {
         })
     ));
 }
+
+#[path = "binary_resolver_bundled_tests.rs"]
+mod bundled;

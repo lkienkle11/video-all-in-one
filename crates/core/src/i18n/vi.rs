@@ -106,6 +106,7 @@ pub fn text(text: Text) -> &'static str {
         Text::MissingToolBody => "Không tìm thấy {0}. Hãy cài bằng lệnh: {1}, hoặc chọn thư mục chứa công cụ này.",
         Text::MissingToolFolder => "Thư mục chứa FFmpeg và FFprobe",
         Text::MissingToolCheck => "Kiểm tra",
+        Text::MissingToolDamaged => "Bản cài đặt chưa đầy đủ. Hãy cài đặt lại Video All-in-One.",
         Text::MissingToolInvalid => "Không tìm thấy đủ FFmpeg và FFprobe trong thư mục đó.",
         Text::UpdateNotSetUp => "Bản dựng này chưa được thiết lập cập nhật.",
         Text::UpdateErrorFileTitle => "Lần cập nhật trước chưa hoàn tất",

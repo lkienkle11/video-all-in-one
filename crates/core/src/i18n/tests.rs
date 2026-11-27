@@ -208,8 +208,9 @@ fn index(t: Text) -> usize {
         Text::MissingToolFolder => 97,
         Text::MissingToolCheck => 98,
         Text::MissingToolInvalid => 99,
-        Text::UpdateNotSetUp => 100,
-        Text::UpdateErrorFileTitle => 101,
+        Text::MissingToolDamaged => 100,
+        Text::UpdateNotSetUp => 101,
+        Text::UpdateErrorFileTitle => 102,
     }
 }
 

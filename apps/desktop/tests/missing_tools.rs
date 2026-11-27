@@ -23,7 +23,7 @@ use vaio_desktop::{
     app::AppView,
     state::{AppState, ToolSearch},
     ui::{
-        missing_tools::{check_tools, install_command},
+        missing_tools::{check_tools, ensure_tools_with_bundled, install_command},
         settings::SettingsView,
         workspace::WorkspaceView,
     },
@@ -400,4 +400,68 @@ async fn export_is_blocked_while_tool_is_missing(cx: &mut TestAppContext) {
     assert!(label_of(cx, &h, "modal-title").is_none());
     wait_until(cx, "the queued job", || !h.store.list().unwrap().is_empty()).await;
     assert_eq!(h.store.list().unwrap().len(), 1);
+}
+
+/// Runs the tool check with `bundled` as the bundled folder, in a window that has a settings view.
+fn ensure_with_bundle(cx: &mut TestAppContext, h: &Harness, bundled: Option<&Path>) -> bool {
+    let store = SettingsStore::new(h.dir.join("settings"));
+    cx.update_window(h.handle, |_, window, cx| {
+        let settings = cx.new(|cx| {
+            SettingsView::new(
+                store,
+                Channel::Development,
+                UpdateState::Idle,
+                |_, _, _| {},
+                cx,
+            )
+        });
+        ensure_tools_with_bundled(&h.state, &settings, bundled, window, cx)
+    })
+    .unwrap()
+}
+
+#[gpui_kit::test]
+fn bundle_present_but_tool_missing_shows_the_reinstall_message(cx: &mut TestAppContext) {
+    let search = directory("empty-path");
+    let bundle = directory("bundle");
+    let (h, _view) = open_workspace(cx, &search, real_tools());
+    assert!(!ensure_with_bundle(cx, &h, Some(&bundle)));
+    render(cx, &h);
+    let title = label_of(cx, &h, "modal-title").expect("the missing-tool modal is open");
+    assert_eq!(
+        title,
+        tr_fmt(Language::English, Text::MissingToolTitle, &["FFmpeg"])
+    );
+    let body = label_of(cx, &h, "missing-tool-body").unwrap();
+    assert_eq!(body, tr(Language::English, Text::MissingToolDamaged));
+    assert!(!body.contains(install_command(Tool::Ffmpeg, std::env::consts::OS)));
+    cx.update_window(h.handle, |_, window, _| {
+        assert!(window.try_find("missing-tool-folder").is_none());
+        assert!(window.try_find("missing-tools-check").is_none());
+        assert!(window.find("missing-tools-close").visible());
+    })
+    .unwrap();
+}
+
+#[gpui_kit::test]
+fn no_bundle_keeps_the_existing_folder_dialog(cx: &mut TestAppContext) {
+    let search = directory("empty-path");
+    let (h, _view) = open_workspace(cx, &search, real_tools());
+    assert!(!ensure_with_bundle(cx, &h, None));
+    render(cx, &h);
+    let body = label_of(cx, &h, "missing-tool-body").unwrap();
+    let command = install_command(Tool::Ffmpeg, std::env::consts::OS);
+    assert_eq!(
+        body,
+        tr_fmt(
+            Language::English,
+            Text::MissingToolBody,
+            &["FFmpeg", command]
+        )
+    );
+    cx.update_window(h.handle, |_, window, _| {
+        assert!(window.find("missing-tool-folder").visible());
+        assert!(window.find("missing-tools-check").visible());
+    })
+    .unwrap();
 }

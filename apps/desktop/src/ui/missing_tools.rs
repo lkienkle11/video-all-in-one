@@ -20,12 +20,23 @@ use vaio_core::{
     i18n::{tr, tr_fmt, Text},
 };
 use vaio_media::ffmpeg::FfmpegPaths;
-use vaio_platform::binary_resolver::{resolve_tool_paths_in, ResolveError};
+use vaio_platform::binary_resolver::{
+    bundled_tool_dir, resolve_tool_paths_in_with_bundled, ResolveError,
+};
 
 /// Resolves FFmpeg and FFprobe from `dir` first and then from `path_var`.
 /// The error names the first tool that was not found.
 pub fn check_tools(dir: Option<&Path>, path_var: Option<&OsStr>) -> Result<FfmpegPaths, Tool> {
-    resolve_tool_paths_in(dir, path_var)
+    check_tools_with_bundled(None, dir, path_var)
+}
+
+/// Like [`check_tools`], looking in the `bundled` folder before `dir` and the `PATH`.
+pub fn check_tools_with_bundled(
+    bundled: Option<&Path>,
+    dir: Option<&Path>,
+    path_var: Option<&OsStr>,
+) -> Result<FfmpegPaths, Tool> {
+    resolve_tool_paths_in_with_bundled(bundled, dir, path_var)
         .map(|found| FfmpegPaths {
             ffmpeg: found.ffmpeg,
             ffprobe: found.ffprobe,
@@ -66,11 +77,26 @@ pub fn ensure_tools(
     window: &mut Window,
     cx: &mut App,
 ) -> bool {
+    let bundled = std::env::current_exe()
+        .ok()
+        .and_then(|exe| bundled_tool_dir(&exe, std::env::consts::OS));
+    ensure_tools_with_bundled(state, settings, bundled.as_deref(), window, cx)
+}
+
+/// [`ensure_tools`] with an explicit bundled folder. When that folder exists and a tool is
+/// still missing, the install is damaged and the modal only says to reinstall.
+pub fn ensure_tools_with_bundled(
+    state: &Entity<AppState>,
+    settings: &Entity<SettingsView>,
+    bundled: Option<&Path>,
+    window: &mut Window,
+    cx: &mut App,
+) -> bool {
     let Some(search) = state.read(cx).tool_search().cloned() else {
         return true;
     };
     let dir = settings.read(cx).tool_dir().map(Path::to_owned);
-    match check_tools(dir.as_deref(), search.path_var()) {
+    match check_tools_with_bundled(bundled, dir.as_deref(), search.path_var()) {
         Ok(paths) => {
             state.read(cx).set_tools(paths);
             true
@@ -80,6 +106,7 @@ pub fn ensure_tools(
                 state,
                 settings,
                 tool,
+                bundled.is_some(),
                 search.path_var().map(OsString::from),
                 window,
                 cx,
@@ -94,11 +121,18 @@ struct Body {
     folder: Entity<InputState>,
     tool: Tool,
     invalid: bool,
+    damaged: bool,
 }
 impl Render for Body {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let language = self.settings.read(cx).language();
         let name = display_name(self.tool);
+        if self.damaged {
+            return div().child(label(
+                "missing-tool-body",
+                tr(language, Text::MissingToolDamaged),
+            ));
+        }
         let command = install_command(self.tool, std::env::consts::OS);
         div()
             .flex()
@@ -123,6 +157,7 @@ fn open(
     state: &Entity<AppState>,
     settings: &Entity<SettingsView>,
     tool: Tool,
+    damaged: bool,
     path_var: Option<OsString>,
     window: &mut Window,
     cx: &mut App,
@@ -140,10 +175,18 @@ fn open(
         folder: folder.clone(),
         tool,
         invalid: false,
+        damaged,
     });
     let (state, settings, kept) = (state.clone(), settings.clone(), body.clone());
     open_dynamic_modal(window, cx, body, move |cx| {
         let language = settings.read(cx).language();
+        let title = tr_fmt(language, Text::MissingToolTitle, &[display_name(tool)]);
+        let close = ModalAction::new("missing-tools-close", tr(language, Text::Close), |_, _| {
+            true
+        });
+        if damaged {
+            return (title.into(), vec![close]);
+        }
         let (state, settings, body, folder, path_var) = (
             state.clone(),
             settings.clone(),
@@ -175,14 +218,6 @@ fn open(
                 }
             },
         );
-        (
-            tr_fmt(language, Text::MissingToolTitle, &[display_name(tool)]).into(),
-            vec![
-                check,
-                ModalAction::new("missing-tools-close", tr(language, Text::Close), |_, _| {
-                    true
-                }),
-            ],
-        )
+        (title.into(), vec![check, close])
     });
 }
