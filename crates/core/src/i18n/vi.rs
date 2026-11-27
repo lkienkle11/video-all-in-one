@@ -24,6 +24,10 @@ pub fn text(text: Text) -> &'static str {
         }
         Text::UpdateLater => "Để sau",
         Text::UpdateNow => "Cập nhật ngay",
+        Text::UpdateJobsRunning => "Đang có {0} lần xuất chưa xong. Cập nhật ngay sẽ dừng chúng.",
+        Text::UpdateAfterJobs => "Cập nhật sau khi xong",
+        Text::UpdateNowStop => "Cập nhật ngay và dừng chúng",
+        Text::UpdateWaitingForJobs => "Đang chờ các lần xuất hoàn tất…",
         Text::ErrorGeneric => "Đã xảy ra lỗi. Vui lòng thử lại.",
         Text::SettingsUpdates => "Cập nhật",
         Text::UpdateCheck => "Kiểm tra cập nhật",

@@ -131,6 +131,7 @@ struct App {
     handle: AnyWindowHandle,
     restarts: Rc<Cell<usize>>,
     states: Rc<RefCell<Vec<UpdateState>>>,
+    state: gpui_kit::Entity<vaio_desktop::state::AppState>,
 }
 
 fn open(
@@ -139,6 +140,17 @@ fn open(
     channel: Channel,
     language: Language,
     setup: impl FnOnce(Rc<RefCell<Vec<UpdateState>>>) -> UpdateSetup,
+) -> App {
+    open_with_jobs(cx, dir, channel, language, setup, &[])
+}
+
+fn open_with_jobs(
+    cx: &mut TestAppContext,
+    dir: &Path,
+    channel: Channel,
+    language: Language,
+    setup: impl FnOnce(Rc<RefCell<Vec<UpdateState>>>) -> UpdateSetup,
+    jobs: &[vaio_core::domain::job::JobState],
 ) -> App {
     cx.update(gpui_kit::init);
     SettingsStore::new(dir)
@@ -151,6 +163,8 @@ fn open(
     let states = Rc::new(RefCell::new(Vec::new()));
     let setup = setup(states.clone());
     let counter = restarts.clone();
+    let app_state = Rc::new(RefCell::new(None));
+    let captured_state = app_state.clone();
     let (handle, _) = cx.update(|cx| {
         let options = WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(Bounds::new(
@@ -164,6 +178,15 @@ fn open(
             let state = cx.new(|_| {
                 vaio_desktop::state::AppState::new(runtime().handle().clone(), None, receiver)
             });
+            state.update(cx, |state, _| {
+                for (id, job) in jobs.iter().enumerate() {
+                    state.apply_event(vaio_core::ports::events::JobEvent::StateChanged(
+                        vaio_core::domain::job::JobId(id as i64),
+                        *job,
+                    ));
+                }
+            });
+            *captured_state.borrow_mut() = Some(state.clone());
             cx.new(|cx| {
                 AppView::with_updates(
                     SettingsStore::new(dir),
@@ -178,10 +201,12 @@ fn open(
         })
         .unwrap()
     });
+    let state = app_state.borrow_mut().take().unwrap();
     App {
         handle,
         restarts,
         states,
+        state,
     }
 }
 
@@ -462,4 +487,121 @@ async fn update_error_file_is_shown_once_and_removed(cx: &mut TestAppContext) {
     );
     cx.run_until_parked();
     assert_eq!(label(cx, &again, "update-error-text"), None, "shown once");
+}
+
+#[gpui_kit::test]
+async fn after_jobs_waits_until_no_job_is_running_then_installs(cx: &mut TestAppContext) {
+    use vaio_core::domain::job::JobState::*;
+    cx.executor().allow_parking();
+    let (dir, fake) = (directory(), Fake::new("1.1.0"));
+    let app = open_with_jobs(
+        cx,
+        &dir.0,
+        Channel::Production,
+        Language::English,
+        recording(&fake, &dir.0, KEY),
+        &[Running, Queued, Succeeded, Failed, Cancelled],
+    );
+    wait_until(cx, "the update dialog", |cx| {
+        label(cx, &app, "update-now").is_some()
+    })
+    .await;
+    click(cx, &app, "update-after-jobs");
+    click(cx, &app, "workspace-settings");
+    assert_eq!(label(cx, &app, "update-notes"), None);
+    assert_eq!(
+        label(cx, &app, "update-state").as_deref(),
+        Some("Waiting for the exports to finish…")
+    );
+    assert_eq!(fake.downloads.load(Ordering::SeqCst), 0);
+    assert_eq!(fake.installs.load(Ordering::SeqCst), 0);
+    finish_job(cx, &app, 0, Succeeded);
+    assert_eq!(
+        fake.downloads.load(Ordering::SeqCst),
+        0,
+        "queued work still blocks updating"
+    );
+    finish_job(cx, &app, 1, Cancelled);
+    wait_until(cx, "the install", |_| has(&app.states, "Installed")).await;
+    finish_job(cx, &app, 1, Cancelled);
+    assert_eq!(fake.installs.load(Ordering::SeqCst), 1);
+    assert_eq!(app.restarts.get(), 1);
+}
+
+#[gpui_kit::test]
+async fn now_installs_at_once_even_with_running_work(cx: &mut TestAppContext) {
+    cx.executor().allow_parking();
+    let (dir, fake) = (directory(), Fake::new("1.1.0"));
+    let app = open_with_jobs(
+        cx,
+        &dir.0,
+        Channel::Production,
+        Language::English,
+        recording(&fake, &dir.0, KEY),
+        &[vaio_core::domain::job::JobState::Running],
+    );
+    wait_until(cx, "the update dialog", |cx| {
+        label(cx, &app, "update-now").is_some()
+    })
+    .await;
+    assert_eq!(
+        label(cx, &app, "update-jobs-running").as_deref(),
+        Some("1 exports are still running. Updating now stops them.")
+    );
+    click(cx, &app, "update-now");
+    wait_until(cx, "the install", |_| has(&app.states, "Installed")).await;
+    assert_eq!(fake.installs.load(Ordering::SeqCst), 1);
+    assert_eq!(app.restarts.get(), 1);
+    cx.update(|cx| assert_eq!(app.state.read(cx).running_job_count(), 1));
+}
+
+#[gpui_kit::test]
+async fn later_installs_nothing(cx: &mut TestAppContext) {
+    use vaio_core::domain::job::JobState::*;
+    cx.executor().allow_parking();
+    for cancel_wait in [false, true] {
+        let (dir, fake) = (directory(), Fake::new("1.1.0"));
+        let app = open_with_jobs(
+            cx,
+            &dir.0,
+            Channel::Production,
+            Language::English,
+            recording(&fake, &dir.0, KEY),
+            &[Running],
+        );
+        wait_until(cx, "the update dialog", |cx| {
+            label(cx, &app, "update-now").is_some()
+        })
+        .await;
+        if cancel_wait {
+            click(cx, &app, "update-after-jobs");
+            click(cx, &app, "workspace-settings");
+            assert_eq!(label(cx, &app, "update-action").as_deref(), Some("Later"));
+            click(cx, &app, "update-action");
+        } else {
+            click(cx, &app, "update-later");
+        }
+        finish_job(cx, &app, 0, Succeeded);
+        assert_eq!(fake.downloads.load(Ordering::SeqCst), 0);
+        assert_eq!(fake.installs.load(Ordering::SeqCst), 0);
+        assert_eq!(app.restarts.get(), 0);
+    }
+}
+
+fn finish_job(
+    cx: &mut TestAppContext,
+    app: &App,
+    id: i64,
+    state: vaio_core::domain::job::JobState,
+) {
+    cx.update(|cx| {
+        app.state.update(cx, |app, cx| {
+            app.apply_event(vaio_core::ports::events::JobEvent::StateChanged(
+                vaio_core::domain::job::JobId(id),
+                state,
+            ));
+            cx.notify();
+        })
+    });
+    cx.run_until_parked();
 }

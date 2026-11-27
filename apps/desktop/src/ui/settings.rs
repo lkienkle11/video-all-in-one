@@ -17,6 +17,7 @@ pub enum UpdateCommand {
     Check,
     Download,
     Install,
+    Later,
 }
 
 type UpdateCallback = Rc<dyn Fn(UpdateCommand, &mut Window, &mut App)>;
@@ -29,6 +30,7 @@ pub struct SettingsView {
     callback: UpdateCallback,
     save_failed: bool,
     updates_unavailable: bool,
+    update_waiting: bool,
 }
 impl SettingsView {
     /// Creates a view of caller-supplied update state. No update I/O is started.
@@ -48,11 +50,16 @@ impl SettingsView {
             callback: Rc::new(callback),
             save_failed: false,
             updates_unavailable: false,
+            update_waiting: false,
         }
     }
     pub fn set_update_state(&mut self, state: UpdateState, cx: &mut Context<Self>) {
         self.state = state;
         self.updates_unavailable = false;
+        cx.notify();
+    }
+    pub(crate) fn set_update_waiting(&mut self, waiting: bool, cx: &mut Context<Self>) {
+        self.update_waiting = waiting;
         cx.notify();
     }
     /// This build cannot update (no public key or manifest URL): say so instead of a state.
@@ -157,6 +164,14 @@ impl SettingsView {
                 tr(language, Text::UpdateFailed).to_owned(),
                 Some((Text::UpdateRetry, UpdateCommand::Check)),
             ),
+        };
+        let (status, action) = if self.update_waiting {
+            (
+                tr(language, Text::UpdateWaitingForJobs).to_owned(),
+                Some((Text::UpdateLater, UpdateCommand::Later)),
+            )
+        } else {
+            (status, action)
         };
         let status = if self.updates_unavailable {
             tr(language, Text::UpdateNotSetUp).to_owned()

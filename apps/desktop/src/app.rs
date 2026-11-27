@@ -52,11 +52,7 @@ impl AppView {
         }
         let data_dir = setup.data_dir.take();
         let start_check = setup.start_check;
-        let controller = UpdateController::new(
-            &mut setup,
-            state.read(cx).runtime().clone(),
-            Rc::new(on_restart),
-        );
+        let controller = UpdateController::new(&mut setup, &state, Rc::new(on_restart), cx);
         let callback = controller.clone();
         let settings = cx.new(|cx| {
             SettingsView::new(
