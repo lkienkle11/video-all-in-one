@@ -124,10 +124,20 @@ pub(super) fn build(
     let installed = bin_dir.join(binary_name);
     fs::copy(binary, &installed).with_context(|| format!("copying {}", binary.display()))?;
     set_mode(&installed, 0o755)?;
-    let executable_dynamic = readelf_dynamic(&installed)?;
+    let mut executable_dynamic = readelf_dynamic(&installed)?;
+    if !elf::run_paths(&executable_dynamic).contains(&run_path) {
+        // The release workflow builds both channels with one set of flags, so that the second
+        // build does not compile every dependency again; the channel's own run path is set here.
+        run_tool(
+            Command::new("patchelf")
+                .args(["--set-rpath", &run_path])
+                .arg(&installed),
+        )?;
+        executable_dynamic = readelf_dynamic(&installed)?;
+    }
     if !elf::run_paths(&executable_dynamic).contains(&run_path) {
         bail!(
-            "{} was not linked with the run path {run_path}; build it with RUSTFLAGS containing `-C link-arg=-Wl,-rpath,{run_path}` (see docs/RELEASING.md)",
+            "{} does not have the run path {run_path}; build it with RUSTFLAGS containing `-C link-arg=-Wl,-rpath,{run_path}` or install patchelf (see docs/RELEASING.md)",
             binary.display()
         );
     }
