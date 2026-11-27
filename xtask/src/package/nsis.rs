@@ -35,6 +35,109 @@ fn check_file_name(name: &str) -> Result<()> {
     Ok(())
 }
 
+/// The list of installed files, one path per line relative to `$INSTDIR`.
+const MANIFEST: &str = "install-manifest.txt";
+
+/// Waits up to 60 seconds (120 tries, 500 ms apart) until the installed executable can be
+/// opened for writing, so the quitting app has released it. Fails with exit code 2 and a
+/// message in the log; there is no dialog, so a silent install never blocks.
+fn wait_for_the_executable(exe: &str) -> Vec<String> {
+    [
+        format!("  IfFileExists \"{exe}\" 0 waitdone"),
+        "  StrCpy $R0 0".into(),
+        "  waitloop:".into(),
+        "  ClearErrors".into(),
+        format!("  FileOpen $R1 \"{exe}\" a"),
+        "  IfErrors 0 waitopened".into(),
+        "  IntOp $R0 $R0 + 1".into(),
+        "  IntCmp $R0 120 waitfail 0 waitfail".into(),
+        "  Sleep 500".into(),
+        "  Goto waitloop".into(),
+        "  waitopened:".into(),
+        "  FileClose $R1".into(),
+        "  Goto waitdone".into(),
+        "  waitfail:".into(),
+        "  SetErrorLevel 2".into(),
+        "  Abort \"The app is still running and its files are in use. Close it and run the installer again.\"".into(),
+        "  waitdone:".into(),
+    ]
+    .into()
+}
+
+/// Deletes the files the previous install listed in its manifest, one `Delete` per line,
+/// never a folder tree. An entry is skipped (never an error) when it is empty, starts with
+/// a path separator, or holds a `:` or `..`, so nothing outside `$INSTDIR` can be reached.
+/// A first install, or an upgrade from a version that wrote no manifest, deletes nothing.
+fn delete_the_previous_files() -> Vec<String> {
+    let manifest = format!("$INSTDIR\\{MANIFEST}");
+    [
+        format!("  IfFileExists \"{manifest}\" 0 olddone"),
+        "  ClearErrors".into(),
+        format!("  FileOpen $R2 \"{manifest}\" r"),
+        "  IfErrors olddone".into(),
+        "  oldloop:".into(),
+        "  ClearErrors".into(),
+        "  FileRead $R2 $R3".into(),
+        "  IfErrors oldclose".into(),
+        "  trimloop:".into(),
+        "  StrCpy $R4 $R3 1 -1".into(),
+        "  StrCmp $R4 \"$\\n\" trimcut".into(),
+        "  StrCmp $R4 \"$\\r\" trimcut".into(),
+        "  Goto trimmed".into(),
+        "  trimcut:".into(),
+        "  StrCpy $R3 $R3 -1".into(),
+        "  Goto trimloop".into(),
+        "  trimmed:".into(),
+        "  StrCmp $R3 \"\" oldloop".into(),
+        "  StrCpy $R6 $R3 1".into(),
+        "  StrCmp $R6 \"\\\" oldloop".into(),
+        "  StrCmp $R6 \"/\" oldloop".into(),
+        "  StrCpy $R5 0".into(),
+        "  scanloop:".into(),
+        "  StrCpy $R6 $R3 1 $R5".into(),
+        "  StrCmp $R6 \"\" scandone".into(),
+        "  StrCmp $R6 \":\" oldloop".into(),
+        "  StrCmp $R6 \".\" 0 scannext".into(),
+        "  IntOp $R7 $R5 + 1".into(),
+        "  StrCpy $R7 $R3 1 $R7".into(),
+        "  StrCmp $R7 \".\" oldloop".into(),
+        "  scannext:".into(),
+        "  IntOp $R5 $R5 + 1".into(),
+        "  Goto scanloop".into(),
+        "  scandone:".into(),
+        "  Delete \"$INSTDIR\\$R3\"".into(),
+        "  Goto oldloop".into(),
+        "  oldclose:".into(),
+        "  FileClose $R2".into(),
+        "  RMDir \"$INSTDIR\\bin\"".into(),
+        "  RMDir \"$INSTDIR\\third-party\"".into(),
+        "  olddone:".into(),
+    ]
+    .into()
+}
+
+/// Writes the manifest of the files this install put in `$INSTDIR`, not the manifest itself
+/// and not `uninstall.exe`.
+fn write_the_manifest(files: &[String]) -> Vec<String> {
+    let mut lines = vec![format!("  FileOpen $R2 \"$INSTDIR\\{MANIFEST}\" w")];
+    let dlls = files
+        .iter()
+        .filter(|file| file.to_ascii_lowercase().ends_with(".dll"));
+    let entries = files
+        .iter()
+        .cloned()
+        .chain(dlls.map(|file| format!("bin\\{file}")))
+        .chain([
+            "bin\\ffmpeg.exe".to_string(),
+            "bin\\ffprobe.exe".to_string(),
+        ]);
+    for entry in entries {
+        lines.push(format!("  FileWrite $R2 \"{entry}$\\r$\\n\""));
+    }
+    lines.push("  FileClose $R2".into());
+    lines
+}
+
 /// The installer script. `files` are the names of the files in `source_dir` to install, the
 /// executable first; `output` is the installer path. Only the dynamic values go through
 /// [`quote`]; the rest is fixed text that uses NSIS variables on purpose.
@@ -68,8 +171,10 @@ pub(super) fn installer_script(
         "UninstPage instfiles".into(),
         String::new(),
         "Section \"Install\"".into(),
-        "  SetOutPath \"$INSTDIR\"".into(),
     ];
+    lines.extend(wait_for_the_executable(&exe));
+    lines.extend(delete_the_previous_files());
+    lines.push("  SetOutPath \"$INSTDIR\"".into());
     for file in files {
         let destination = if file.starts_with("third-party\\") {
             "$INSTDIR\\third-party"
@@ -97,6 +202,7 @@ pub(super) fn installer_script(
         ));
     }
     lines.push("  SetOutPath \"$INSTDIR\"".into());
+    lines.extend(write_the_manifest(files));
     lines.extend([
         "  WriteUninstaller \"$INSTDIR\\uninstall.exe\"".to_string(),
         format!("  CreateShortcut \"{shortcut}\" \"{exe}\""),
@@ -126,6 +232,7 @@ pub(super) fn installer_script(
     lines.push("  RMDir \"$INSTDIR\\bin\"".into());
     lines.push("  RMDir \"$INSTDIR\\third-party\"".into());
     lines.extend([
+        format!("  Delete \"$INSTDIR\\{MANIFEST}\""),
         "  Delete \"$INSTDIR\\uninstall.exe\"".to_string(),
         format!("  Delete \"{shortcut}\""),
         format!("  DeleteRegKey HKCU {key}"),
@@ -235,109 +342,5 @@ pub(super) fn build(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{installer_script, quote};
-    use std::path::Path;
-    use vaio_platform::channel::Channel;
-
-    fn script() -> String {
-        installer_script(
-            Channel::Production,
-            "0.1.0",
-            Path::new("C:\\out\\video-all-in-one-0.1.0-windows-x86_64.exe"),
-            Path::new("C:\\out\\stage"),
-            &[
-                "video-all-in-one.exe".to_string(),
-                "libmpv-2.dll".to_string(),
-            ],
-            Path::new("C:\\out\\icon.ico"),
-        )
-        .unwrap()
-    }
-
-    #[test]
-    fn script_uses_the_icon_for_the_installer_and_the_uninstaller() {
-        let script = script();
-        assert!(script.contains("Icon \"C:\\out\\icon.ico\"\n"));
-        assert!(script.contains("UninstallIcon \"C:\\out\\icon.ico\"\n"));
-        assert!(
-            !script.contains("File \"C:\\out\\icon.ico\""),
-            "the icon is not installed as a file"
-        );
-    }
-
-    #[test]
-    fn quote_escapes_dollar_and_quote_and_refuses_line_breaks() {
-        assert_eq!(quote("a $b \"c\"").unwrap(), "\"a $$b $\\\"c$\\\"\"");
-        assert!(quote("a\nb").is_err());
-        assert!(quote("a\rb").is_err());
-    }
-
-    #[test]
-    fn script_installs_per_user_and_names_the_installer() {
-        let script = script();
-        assert!(script.contains("RequestExecutionLevel user"));
-        assert!(script.contains("InstallDir \"$LOCALAPPDATA\\Programs\\Video All-in-One\""));
-        assert!(script.contains("OutFile \"C:\\out\\video-all-in-one-0.1.0-windows-x86_64.exe\""));
-        assert!(script.contains("Unicode true"));
-    }
-
-    #[test]
-    fn script_copies_every_file_and_deletes_exactly_those_files_on_uninstall() {
-        let script = script();
-        for file in ["video-all-in-one.exe", "libmpv-2.dll"] {
-            assert!(
-                script.contains(&format!("File \"C:\\out\\stage\\{file}\"")),
-                "{file}"
-            );
-            assert!(
-                script.contains(&format!("Delete \"$INSTDIR\\{file}\"")),
-                "{file}"
-            );
-        }
-        assert!(
-            !script.contains("RMDir /r"),
-            "the uninstaller must never delete a folder tree"
-        );
-        assert!(script.contains("RMDir \"$INSTDIR\""));
-        assert!(script.contains("WriteUninstaller \"$INSTDIR\\uninstall.exe\""));
-        assert!(script.contains("Section \"Uninstall\""));
-    }
-
-    #[test]
-    fn script_adds_a_start_menu_shortcut_and_an_uninstall_entry_for_the_current_user() {
-        let script = script();
-        assert!(script.contains("CreateShortcut \"$SMPROGRAMS\\Video All-in-One.lnk\" \"$INSTDIR\\video-all-in-one.exe\""));
-        assert!(script.contains("Delete \"$SMPROGRAMS\\Video All-in-One.lnk\""));
-        let key = "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\app.videoallinone";
-        assert!(script.contains(&format!(
-            "WriteRegStr HKCU \"{key}\" \"DisplayVersion\" \"0.1.0\""
-        )));
-        assert!(script.contains(&format!("DeleteRegKey HKCU \"{key}\"")));
-        assert!(
-            !script.contains("HKLM"),
-            "a per-user install never writes machine-wide keys"
-        );
-    }
-
-    #[test]
-    fn silent_install_starts_the_app_again_after_an_update() {
-        let script = script();
-        assert!(script.contains("Function .onInstSuccess"));
-        assert!(script.contains("IfSilent"));
-        assert!(script.contains("Exec '\"$INSTDIR\\video-all-in-one.exe\"'"));
-    }
-
-    #[test]
-    fn script_refuses_a_file_name_that_could_break_out_of_the_string() {
-        let result = installer_script(
-            Channel::Production,
-            "0.1.0",
-            Path::new("out.exe"),
-            Path::new("stage"),
-            &["a\".dll".to_string()],
-            Path::new("icon.ico"),
-        );
-        assert!(result.is_err());
-    }
-}
+#[path = "nsis_tests.rs"]
+mod tests;
