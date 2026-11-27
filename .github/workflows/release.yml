@@ -199,7 +199,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            build-essential pkg-config clang cmake \
+            build-essential pkg-config clang cmake patchelf \
             libasound2-dev libfontconfig-dev libwayland-dev libx11-xcb-dev \
             libxkbcommon-x11-dev libvulkan1 libzstd-dev
 
@@ -293,8 +293,11 @@ jobs:
         run: |
           app="dist/stage-macos/Video All-in-One.app"
           codesign --verify --deep --strict "$app"
-          DYLD_LIBRARY_PATH= DYLD_FALLBACK_LIBRARY_PATH= "$app/Contents/Resources/bin/ffmpeg" -version
-          DYLD_LIBRARY_PATH= DYLD_FALLBACK_LIBRARY_PATH= "$app/Contents/Resources/bin/ffprobe" -version
+          # The cross-built Intel tools cannot start on the Apple Silicon runner without Rosetta.
+          if [ -z "${{ matrix.rust_target }}" ]; then
+            DYLD_LIBRARY_PATH= DYLD_FALLBACK_LIBRARY_PATH= "$app/Contents/Resources/bin/ffmpeg" -version
+            DYLD_LIBRARY_PATH= DYLD_FALLBACK_LIBRARY_PATH= "$app/Contents/Resources/bin/ffprobe" -version
+          fi
           status=0
           for file in "$app/Contents/MacOS/video-all-in-one" "$app"/Contents/Resources/bin/* "$app"/Contents/Frameworks/*.dylib; do
             if otool -L "$file" | tail -n +2 | grep -E "/opt/homebrew|/usr/local"; then

@@ -63,12 +63,12 @@ pub fn bundled_tool_dir(exe: &Path, os: &str) -> Option<PathBuf> {
         // <App>.app/Contents/MacOS/<bin> -> <App>.app/Contents/Resources/bin
         "macos" => exe.parent()?.parent()?.join("Resources").join("bin"),
         "windows" => exe.parent()?.join("bin"),
-        // <prefix>/bin/<bin> -> <prefix>/lib/video-all-in-one/bin
+        // <prefix>/bin/<bin> -> <prefix>/lib/<bin>/bin; the package names both after the channel.
         _ => exe
             .parent()?
             .parent()?
             .join("lib")
-            .join("video-all-in-one")
+            .join(exe.file_name()?)
             .join("bin"),
     };
     dir.is_dir().then_some(dir)

@@ -156,7 +156,7 @@ pub(super) fn installer_script(
     let key = format!("\"Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\{identifier}\"");
     let mut lines: Vec<String> = vec![
         "Unicode true".into(),
-        "!include FileFunc.nsh\n!insertmacro GetParent\nVar UpdateBackup\nVar UpdateWriting\nVar UpdateFailure".into(),
+        "!include FileFunc.nsh\n!insertmacro GetParent\nVar UpdateBackup\nVar UpdateWriting\nVar UpdateFailure\nVar UpdateRestoreFailed\nVar UpdateRestoreNote".into(),
         "RequestExecutionLevel user".into(),
         format!("Name \"{app_name}\""),
         format!("OutFile {}", quote(&output.display().to_string())?),
@@ -178,7 +178,7 @@ pub(super) fn installer_script(
     lines.push(format!("  IfFileExists \"{old_manifest}\" 0 backupdone\n  IfFileExists \"{previous}\\*.*\" 0 +2\n  Abort \"A previous update backup already exists at {previous}.\""));
     lines.push("  StrCpy $UpdateBackup 1".into());
     lines.push(checked(&format!("  CreateDirectory \"{previous}\"\n  CopyFiles /SILENT /FILESONLY \"{old_manifest}\" \"{previous}\""), "Backing up the install manifest"));
-    let backup = checked("  ${GetParent} \"$INSTDIR\\.previous\\$R3\" $R8\n  CreateDirectory \"$R8\"\n  CopyFiles /SILENT /FILESONLY \"$INSTDIR\\$R3\" \"$R8\"", "Backing up $INSTDIR\\$R3");
+    let backup = checked("  IfFileExists \"$INSTDIR\\$R3\" 0 backupskip\n  ${GetParent} \"$INSTDIR\\.previous\\$R3\" $R8\n  CreateDirectory \"$R8\"\n  CopyFiles /SILENT /FILESONLY \"$INSTDIR\\$R3\" \"$R8\"\n  backupskip:", "Backing up $INSTDIR\\$R3");
     lines.push(manifest_loop("backup", &backup_manifest, &backup));
     lines.push("  StrCpy $UpdateWriting 1\n  backupdone:".into());
     // An unreadable backup list must never permit deletion of the installed files.
@@ -268,7 +268,8 @@ pub(super) fn installer_script(
         "Function .onInstSuccess".to_string(),
     ]);
     lines.push("  StrCmp $UpdateBackup 1 0 cleanupdone".into());
-    lines.push(manifest_loop("cleanup", &backup_manifest, "  Delete \"$INSTDIR\\.previous\\$R3\"\n  ${GetParent} \"$INSTDIR\\.previous\\$R3\" $R8\n  cleanupdirs:\n  StrCmp $R8 \"$INSTDIR\\.previous\" cleanupnext\n  RMDir \"$R8\"\n  ${GetParent} \"$R8\" $R8\n  Goto cleanupdirs\n  cleanupnext:"));
+    let cleanup_body = "  Delete \"$INSTDIR\\.previous\\$R3\"\n  ${GetParent} \"$INSTDIR\\.previous\\$R3\" $R8\n  cleanupdirs:\n  StrCmp $R8 \"$INSTDIR\\.previous\" cleanupnext\n  RMDir \"$R8\"\n  ${GetParent} \"$R8\" $R8\n  Goto cleanupdirs\n  cleanupnext:";
+    lines.push(manifest_loop("cleanup", &backup_manifest, cleanup_body));
     lines.push(format!(
         "  Delete \"{backup_manifest}\"\n  RMDir \"{previous}\"\n  cleanupdone:"
     ));
@@ -278,11 +279,14 @@ pub(super) fn installer_script(
         "  done:".to_string(),
         "FunctionEnd".to_string(),
     ]);
-    lines.push("Function .onInstFailed\n  StrCmp $UpdateBackup 1 0 faileddone\n  FileClose $R2\n  StrCmp $UpdateWriting 1 0 reporterror".into());
+    lines.push("Function .onInstFailed\n  StrCmp $UpdateBackup 1 0 faileddone\n  FileClose $R2\n  StrCpy $UpdateRestoreFailed 0\n  StrCpy $UpdateRestoreNote \"The previous app version was restored.\"\n  StrCmp $UpdateWriting 1 0 failedrestore".into());
     // Remove only the known new payload before restoring, including newly added files.
     lines.extend(payload_deletes);
-    lines.push(manifest_loop("restore", &backup_manifest, "  ${GetParent} \"$INSTDIR\\$R3\" $R8\n  CreateDirectory \"$R8\"\n  ClearErrors\n  CopyFiles /SILENT /FILESONLY \"$INSTDIR\\.previous\\$R3\" \"$R8\"\n  IfErrors 0 +2\n  StrCpy $UpdateFailure \"$UpdateFailure; restoring $R3 also failed\""));
-    lines.push(format!("  restoredone:\n  ClearErrors\n  CopyFiles /SILENT /FILESONLY \"{backup_manifest}\" \"$INSTDIR\"\n  IfErrors 0 +2\n  StrCpy $UpdateFailure \"$UpdateFailure; restoring the install manifest also failed\"\n  reporterror:\n  CreateDirectory \"$APPDATA\\{identifier}\"\n  FileOpen $R2 \"$APPDATA\\{identifier}\\update-error.txt\" w\n  IfErrors faileddone\n  FileWrite $R2 \"The update could not be completed.$\\r$\\n$\\r$\\nWhat failed: $UpdateFailure$\\r$\\nThe previous app version is at: {previous}$\\r$\\n\"\n  FileClose $R2\n  faileddone:\n  SetErrorLevel 2\nFunctionEnd"));
+    lines.push(manifest_loop("restore", &backup_manifest, "  ${GetParent} \"$INSTDIR\\$R3\" $R8\n  CreateDirectory \"$R8\"\n  ClearErrors\n  CopyFiles /SILENT /FILESONLY \"$INSTDIR\\.previous\\$R3\" \"$R8\"\n  IfErrors 0 +2\n  StrCpy $UpdateFailure \"$UpdateFailure; restoring $R3 also failed\"\n  StrCpy $UpdateRestoreFailed 1"));
+    lines.push(format!("  restoredone:\n  ClearErrors\n  CopyFiles /SILENT /FILESONLY \"{backup_manifest}\" \"$INSTDIR\"\n  IfErrors 0 +3\n  StrCpy $UpdateFailure \"$UpdateFailure; restoring the install manifest also failed\"\n  StrCpy $UpdateRestoreFailed 1\n  StrCmp $UpdateRestoreFailed 1 reporterror"));
+    // A restore with no error leaves the backup redundant, and a leftover backup would block every retry.
+    lines.push(manifest_loop("cleanup", &backup_manifest, cleanup_body));
+    lines.push(format!("  Delete \"{backup_manifest}\"\n  RMDir \"{previous}\"\n  Goto reporterror\n  failedrestore:\n  StrCpy $UpdateRestoreFailed 1\n  reporterror:\n  StrCmp $UpdateRestoreFailed 1 0 writeerror\n  StrCpy $UpdateRestoreNote \"The previous app version is at: {previous}\"\n  writeerror:\n  CreateDirectory \"$APPDATA\\{identifier}\"\n  FileOpen $R2 \"$APPDATA\\{identifier}\\update-error.txt\" w\n  IfErrors faileddone\n  FileWrite $R2 \"The update could not be completed.$\\r$\\n$\\r$\\nWhat failed: $UpdateFailure$\\r$\\n$UpdateRestoreNote$\\r$\\n\"\n  FileClose $R2\n  faileddone:\n  SetErrorLevel 2\nFunctionEnd"));
     Ok(lines.join("\n") + "\n")
 }
 

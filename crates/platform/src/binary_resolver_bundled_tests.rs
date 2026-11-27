@@ -96,3 +96,15 @@ fn bundled_dir_per_os_layout() {
         Some(linux_bin)
     );
 }
+
+#[test]
+fn the_dev_linux_package_finds_its_own_tool_folder() {
+    let tmp = TempDir::new("bundled-dev-linux");
+    let prefix = tmp.path().join("usr");
+    let dev_bin = prefix.join("lib/video-all-in-one-dev/bin");
+    std::fs::create_dir_all(&dev_bin).unwrap();
+    assert_eq!(
+        bundled_tool_dir(&prefix.join("bin/video-all-in-one-dev"), "linux"),
+        Some(dev_bin)
+    );
+}

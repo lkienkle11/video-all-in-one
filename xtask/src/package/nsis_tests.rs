@@ -276,7 +276,7 @@ fn script_copies_the_old_manifest_files_to_previous_before_writing() {
 fn script_restores_the_previous_files_when_a_step_fails() {
     let script = upgrade_script();
     let failure = &script[at(&script, "Function .onInstFailed")..];
-    assert!(failure.contains("StrCmp $UpdateWriting 1 0 reporterror"));
+    assert!(failure.contains("StrCmp $UpdateWriting 1 0 failedrestore"));
     let remove = at(failure, "Delete \"$INSTDIR\\third-party\\SOURCES.txt\"");
     let read = at(
         failure,
@@ -290,7 +290,12 @@ fn script_restores_the_previous_files_when_a_step_fails() {
     assert!(failure.contains(
         "CopyFiles /SILENT /FILESONLY \"$INSTDIR\\.previous\\install-manifest.txt\" \"$INSTDIR\""
     ));
-    assert!(!failure.contains("Delete \"$INSTDIR\\.previous"));
+    // The backup is deleted only after a restore with no error; otherwise it is the only copy.
+    let flag = at(failure, "StrCmp $UpdateRestoreFailed 1 reporterror");
+    assert!(at(failure, "restoredone:") < flag);
+    assert!(flag < at(failure, "Delete \"$INSTDIR\\.previous\\$R3\""));
+    assert!(flag < at(failure, "RMDir \"$INSTDIR\\.previous\""));
+    assert!(failure.matches("StrCpy $UpdateRestoreFailed 1").count() >= 2);
     let install = &script[..at(&script, "Section \"Uninstall\"")];
     for (index, line) in install
         .lines()
@@ -306,7 +311,9 @@ fn script_restores_the_previous_files_when_a_step_fails() {
             "{line}"
         );
     }
-    assert!(install.contains("CopyFiles /SILENT /FILESONLY \"$INSTDIR\\$R3\" \"$R8\"\n  IfErrors 0 +2\n  Abort \"$UpdateFailure\""));
+    // A listed file that is already gone (removed by the user or an antivirus) is skipped, not fatal.
+    assert!(install.contains("IfFileExists \"$INSTDIR\\$R3\" 0 backupskip\n"));
+    assert!(install.contains("CopyFiles /SILENT /FILESONLY \"$INSTDIR\\$R3\" \"$R8\"\n  backupskip:\n  IfErrors 0 +2\n  Abort \"$UpdateFailure\""));
     assert!(at(install, "backupdone:") < at(install, "File \"stage\\"));
 }
 
@@ -316,7 +323,9 @@ fn script_writes_update_error_txt_in_the_data_folder_on_failure() {
     let failure = &script[at(&script, "Function .onInstFailed")..];
     assert!(failure.contains("CreateDirectory \"$APPDATA\\app.videoallinone\""));
     assert!(failure.contains("FileOpen $R2 \"$APPDATA\\app.videoallinone\\update-error.txt\" w"));
-    assert!(failure.contains("The update could not be completed.$\\r$\\n$\\r$\\nWhat failed: $UpdateFailure$\\r$\\nThe previous app version is at: $INSTDIR\\.previous$\\r$\\n"));
+    assert!(failure.contains("The update could not be completed.$\\r$\\n$\\r$\\nWhat failed: $UpdateFailure$\\r$\\n$UpdateRestoreNote$\\r$\\n"));
+    assert!(failure.contains("The previous app version was restored."));
+    assert!(failure.contains("The previous app version is at: $INSTDIR\\.previous"));
     assert!(failure.contains("FileClose $R2"));
 }
 
