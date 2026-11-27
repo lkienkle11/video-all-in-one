@@ -34,7 +34,7 @@ env:
   # Overrides rust-toolchain.toml (channel "stable") so every run uses the same compiler.
   RUSTUP_TOOLCHAIN: "1.99.1"
   # Must equal RECIPE_VERSION in xtask/src/libmpv/sources.rs (a test checks it).
-  LIBMPV_RECIPE: "1"
+  LIBMPV_RECIPE: "2"
   # Build tools installed from PyPI into a throw-away virtual environment.
   MESON_VERSION: "1.8.2"
   NINJA_VERSION: "1.11.1.4"

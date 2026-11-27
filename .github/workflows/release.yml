@@ -30,13 +30,13 @@ env:
   # Overrides rust-toolchain.toml (channel "stable") so every run uses the same compiler.
   RUSTUP_TOOLCHAIN: "1.99.1"
   # macOS and Ubuntu: our own LGPL libmpv, built by build-libmpv.yml and published as assets of the
-  # release libmpv-1. LIBMPV_RECIPE must equal RECIPE_VERSION in xtask/src/libmpv/sources.rs.
+  # release libmpv-2. LIBMPV_RECIPE must equal RECIPE_VERSION in xtask/src/libmpv/sources.rs.
   # Replace each PENDING value with the SHA-256 the Build libmpv workflow prints for that archive.
-  LIBMPV_RECIPE: "1"
-  LIBMPV_URL_BASE: "https://github.com/${{ github.repository }}/releases/download/libmpv-1"
-  LIBMPV_SHA256_LINUX_X86_64: "b4ecd5b0ab384c10b2d591269d19d6a9032bab8dfb99a46be9b7dfbeaadab6cf"
-  LIBMPV_SHA256_MACOS_ARM64: "3fcd870e37c956372165f6dc3d3f92264a28610406a2840dcd611e52c8ebacfc"
-  LIBMPV_SHA256_MACOS_X86_64: "59f6bb2c161ca3a20066aa8c8a2cb327fe0984cd9357760e03ebf517f9ad3217"
+  LIBMPV_RECIPE: "2"
+  LIBMPV_URL_BASE: "https://github.com/${{ github.repository }}/releases/download/libmpv-2"
+  LIBMPV_SHA256_LINUX_X86_64: "PENDING-first-build"
+  LIBMPV_SHA256_MACOS_ARM64: "PENDING-first-build"
+  LIBMPV_SHA256_MACOS_X86_64: "PENDING-first-build"
   # Windows only: libmpv for Windows from the LGPL build of zhongfly/mpv-winbuild.
   MPV_WIN_URL: "https://github.com/zhongfly/mpv-winbuild/releases/download/2026-11-23-35efcf53d5/mpv-dev-lgpl-x86_64-20261123-git-35efcf53d5.7z"
   MPV_WIN_SHA256: "029892b3c3951bbb738d05a338698d330e0682b767ff7c142a4da68da68c175a"
@@ -144,7 +144,7 @@ jobs:
           restore-keys: |
             cargo-release-${{ matrix.name }}-${{ env.RUSTUP_TOOLCHAIN }}-
 
-      # macOS and Ubuntu: our own LGPL libmpv from the release libmpv-1 (built by
+      # macOS and Ubuntu: our own LGPL libmpv from the release libmpv-2 (built by
       # build-libmpv.yml). The archive is checked against the pinned SHA-256 before it is unpacked.
       # RUSTFLAGS replaces the Homebrew entries of .cargo/config.toml, which stay for local work.
       - name: Install the pinned libmpv (macOS and Ubuntu)
