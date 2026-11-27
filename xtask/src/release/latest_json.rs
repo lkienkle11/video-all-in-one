@@ -18,6 +18,8 @@ pub(crate) const PLATFORMS: [(&str, &str); 4] = [
     ("linux-x86_64", "deb"),
 ];
 pub(crate) const FILE_PREFIX: &str = "video-all-in-one-";
+/// Between the version and the platform key in the name of a development build.
+pub(crate) const DEV_MARKER: &str = "-dev-";
 
 /// Reads the notes of `version` from `changelog`, builds the schema 1 manifest from the
 /// artifacts in `assets_dir` and writes it to `out` (default `<assets_dir>/latest.json`).
@@ -145,8 +147,13 @@ fn find_artifacts(assets_dir: &Path, version: &str) -> Result<BTreeMap<String, S
 }
 
 /// The platform key and version of a `video-all-in-one-<version>-<platform>.<ext>` name.
+/// A development build (`video-all-in-one-<version>-dev-<platform>.<ext>`) is never an update
+/// artifact, so it never matches.
 pub(crate) fn match_artifact(name: &str) -> Option<(&'static str, &str)> {
     let rest = name.strip_prefix(FILE_PREFIX)?;
+    if rest.contains(DEV_MARKER) {
+        return None;
+    }
     for &(platform, ext) in PLATFORMS.iter() {
         let suffix = format!("-{platform}.{ext}");
         if let Some(version) = rest.strip_suffix(&suffix) {

@@ -26,6 +26,10 @@ pub fn text(text: Text) -> &'static str {
         }
         Text::UpdateLater => "Later",
         Text::UpdateNow => "Update now",
+        Text::UpdateJobsRunning => "{0} exports are still running. Updating now stops them.",
+        Text::UpdateAfterJobs => "Update after they finish",
+        Text::UpdateNowStop => "Update now and stop them",
+        Text::UpdateWaitingForJobs => "Waiting for the exports to finish…",
         Text::ErrorGeneric => "Something went wrong. Please try again.",
         Text::SettingsUpdates => "Updates",
         Text::UpdateCheck => "Check for updates",
@@ -117,7 +121,13 @@ pub fn text(text: Text) -> &'static str {
         Text::MissingToolFolder => "Folder with FFmpeg and FFprobe",
         Text::MissingToolCheck => "Check",
         Text::MissingToolInvalid => "FFmpeg and FFprobe were not both found in that folder.",
+        Text::MissingToolDamaged => "The installation is incomplete. Reinstall Video All-in-One.",
         Text::UpdateNotSetUp => "Updates are not set up in this build.",
         Text::UpdateErrorFileTitle => "The last update did not finish",
+        Text::StartupErrorTitle => "Video All-in-One cannot open your data",
+        Text::StartupNewerData => "Your data was created by a newer version of Video All-in-One. Install the newest version to open it.",
+        Text::StartupUnknownDatabase => "The data file in the data folder is not from Video All-in-One. Nothing was changed.",
+        Text::StartupOther => "Video All-in-One could not open its data. Your videos and files were not changed.",
+        Text::StartupDataFolder => "Data folder: {0}",
     }
 }

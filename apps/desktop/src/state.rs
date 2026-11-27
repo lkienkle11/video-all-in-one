@@ -161,6 +161,13 @@ impl AppState {
     pub fn jobs(&self) -> &[JobRow] {
         &self.jobs
     }
+    /// Exports that are queued or currently running.
+    pub fn running_job_count(&self) -> usize {
+        self.jobs
+            .iter()
+            .filter(|job| matches!(job.state(), Some(JobState::Queued | JobState::Running)))
+            .count()
+    }
     pub fn selected(&self) -> Option<&Source> {
         self.sources
             .iter()

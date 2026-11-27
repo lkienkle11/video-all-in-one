@@ -18,6 +18,25 @@ pub fn dpkg_command(copy: &Path) -> Command {
     command
 }
 
+/// Installs the absolute private-copy path and its dependencies, without a shell.
+pub fn apt_command(copy: &Path) -> Command {
+    let mut command = Command::new("/usr/bin/apt-get");
+    command
+        .args(["install", "-y", "--no-install-recommends"])
+        .arg(copy)
+        .env("DEBIAN_FRONTEND", "noninteractive");
+    command
+}
+
+/// Uses apt to resolve dependencies when available, otherwise falls back to dpkg.
+pub fn installer_command(apt_available: bool, copy: &Path) -> Command {
+    if apt_available {
+        apt_command(copy)
+    } else {
+        dpkg_command(copy)
+    }
+}
+
 /// Copies `request.path` into a new private directory under `base`, hashes the copy,
 /// refuses a mismatch, and only then calls `run` with the copy. The copy is removed after.
 pub fn install_verified(
@@ -39,15 +58,21 @@ pub fn install_verified(
     run(copy.path())
 }
 
-/// Runs the root-side step with the real `dpkg`.
+/// Runs the root-side step with apt when available, otherwise dpkg.
 #[cfg(target_os = "linux")]
 pub fn apply(request: &DebRequest) -> Result<(), UpdateError> {
     install_verified(request, &std::env::temp_dir(), |copy| {
-        let status = dpkg_command(copy).status().map_err(install_error)?;
+        let apt_available = Path::new("/usr/bin/apt-get").exists();
+        let installer = if apt_available { "apt-get" } else { "dpkg" };
+        let status = installer_command(apt_available, copy)
+            .status()
+            .map_err(install_error)?;
         if status.success() {
             Ok(())
         } else {
-            Err(install_error(format!("dpkg exited with {status}")))
+            Err(install_error(format!(
+                "the update package could not be installed ({installer} exited with {status}); a package it needs may be missing"
+            )))
         }
     })
 }
@@ -96,6 +121,89 @@ mod tests {
             command.get_args().collect::<Vec<_>>(),
             ["-i", "/root/copy dir/-x; reboot.deb"]
         );
+    }
+
+    #[test]
+    fn apt_runs_with_an_argument_list_and_no_shell() {
+        let command = apt_command(Path::new("/root/copy dir/-x; reboot.deb"));
+        assert_eq!(command.get_program(), "/usr/bin/apt-get");
+        assert_eq!(
+            command.get_args().collect::<Vec<_>>(),
+            [
+                "install",
+                "-y",
+                "--no-install-recommends",
+                "/root/copy dir/-x; reboot.deb"
+            ]
+        );
+        assert!(command.get_envs().any(|(key, value)| {
+            key == "DEBIAN_FRONTEND" && value == Some(std::ffi::OsStr::new("noninteractive"))
+        }));
+    }
+
+    #[test]
+    fn apt_command_names_the_private_copy_by_absolute_path() {
+        let dir = TempDir::new();
+        let request = request(&dir, b"deb bytes", b"deb bytes");
+        let mut seen = None;
+        install_verified(&request, &dir.0, |copy| {
+            assert!(copy.is_absolute());
+            assert_ne!(copy, request.path);
+            assert_eq!(fs::read(copy).unwrap(), b"deb bytes");
+            let command = apt_command(copy);
+            assert_eq!(command.get_args().last(), Some(copy.as_os_str()));
+            seen = Some(copy.to_path_buf());
+            Ok(())
+        })
+        .unwrap();
+        assert!(!seen.unwrap().exists());
+    }
+
+    #[test]
+    fn apt_is_used_when_it_exists_and_dpkg_otherwise() {
+        let copy = Path::new("/root/private copy/update.deb");
+        for (available, program, args) in [
+            (
+                true,
+                "/usr/bin/apt-get",
+                vec![
+                    "install",
+                    "-y",
+                    "--no-install-recommends",
+                    "/root/private copy/update.deb",
+                ],
+            ),
+            (
+                false,
+                "/usr/bin/dpkg",
+                vec!["-i", "/root/private copy/update.deb"],
+            ),
+        ] {
+            let command = installer_command(available, copy);
+            assert_eq!(command.get_program(), program);
+            assert_eq!(command.get_args().collect::<Vec<_>>(), args);
+        }
+    }
+
+    #[test]
+    fn mismatching_bytes_are_still_refused_before_any_installer_runs() {
+        let dir = TempDir::new();
+        let base = dir.0.join("base");
+        fs::create_dir(&base).unwrap();
+        let request = request(&dir, b"swapped", b"approved");
+        for available in [true, false] {
+            let result = install_verified(&request, &base, |copy| {
+                let command = installer_command(available, copy);
+                panic!("must not run {:?}", command.get_program());
+            });
+            assert_eq!(
+                result,
+                Err(UpdateError::Verify(
+                    vaio_core::update::VerifyError::DigestMismatch
+                ))
+            );
+            assert_eq!(entries(&base), 0);
+        }
     }
 
     #[test]

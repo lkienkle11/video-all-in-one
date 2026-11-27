@@ -1,5 +1,6 @@
 //! The dynamic libraries a macOS executable needs, found with `otool -L` and described as
 //! pure data so the closure and the rewrite arguments can be tested without a Mac.
+//! Libraries use loader-relative dependencies so tools in `Resources/bin` share Frameworks.
 
 use anyhow::{bail, Result};
 use std::ffi::OsString;
@@ -53,6 +54,9 @@ pub(super) fn bundle_reference(name: &str) -> String {
 /// dependency into the bundle.
 pub(super) fn install_name_args(id: Option<&str>, deps: &[String], file: &Path) -> Vec<OsString> {
     let mut args: Vec<OsString> = Vec::new();
+    let tool = file
+        .parent()
+        .is_some_and(|dir| dir.ends_with("Contents/Resources/bin"));
     if let Some(name) = id {
         args.push("-id".into());
         args.push(bundle_reference(name).into());
@@ -60,7 +64,18 @@ pub(super) fn install_name_args(id: Option<&str>, deps: &[String], file: &Path) 
     for dep in deps {
         args.push("-change".into());
         args.push(dep.into());
-        args.push(bundle_reference(bundled_name(dep)).into());
+        let name = bundled_name(dep);
+        let reference = if id.is_some() {
+            format!("@loader_path/{name}")
+        } else if tool {
+            format!("@rpath/{name}")
+        } else {
+            bundle_reference(name)
+        };
+        args.push(reference.into());
+    }
+    if tool {
+        args.extend(["-add_rpath".into(), "@loader_path/../../Frameworks".into()]);
     }
     args.push(file.into());
     args
@@ -266,7 +281,7 @@ mod tests {
                 "@executable_path/../Frameworks/libb.1.dylib",
                 "-change",
                 "/opt/b/libc.dylib",
-                "@executable_path/../Frameworks/libc.dylib",
+                "@loader_path/libc.dylib",
                 "/stage/libb.1.dylib"
             ]
         );

@@ -2,14 +2,26 @@
 
 use super::modal::{open_with_policy, ModalAction};
 use gpui_kit::base::TestSupportExt;
+use gpui_kit::component::{button::Button, WindowExt};
 use gpui_kit::prelude::*;
 use gpui_kit::{div, App, IntoElement, RenderOnce, Window};
+use std::rc::Rc;
 use vaio_core::{
     i18n::{tr, tr_fmt, Language, Text},
     update::AvailableUpdate,
 };
 
 pub struct UpdateDialog;
+
+/// When the customer wants the update to be installed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UpdateChoice {
+    AfterJobs,
+    Now,
+    Later,
+}
+
+type ChoiceCallback = Rc<dyn Fn(UpdateChoice, &mut Window, &mut App)>;
 
 impl UpdateDialog {
     pub fn open(
@@ -20,30 +32,69 @@ impl UpdateDialog {
         window: &mut Window,
         cx: &mut App,
     ) {
+        Self::open_with_jobs(
+            language,
+            update,
+            0,
+            move |choice, window, cx| match choice {
+                UpdateChoice::Now => on_now(window, cx),
+                UpdateChoice::Later | UpdateChoice::AfterJobs => on_later(window, cx),
+            },
+            window,
+            cx,
+        );
+    }
+
+    pub fn open_with_jobs(
+        language: Language,
+        update: AvailableUpdate,
+        running_jobs: usize,
+        on_choice: impl Fn(UpdateChoice, &mut Window, &mut App) + 'static,
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        let on_choice: ChoiceCallback = Rc::new(on_choice);
+        let on_later = on_choice.clone();
         let later = ModalAction::new(
             "update-later",
             tr(language, Text::UpdateLater),
             move |window, cx| {
-                on_later(window, cx);
+                on_later(UpdateChoice::Later, window, cx);
                 true
             },
         );
+        let on_now = on_choice.clone();
+        let now = ModalAction::new(
+            "update-now",
+            tr(
+                language,
+                if running_jobs == 0 {
+                    Text::UpdateNow
+                } else {
+                    Text::UpdateNowStop
+                },
+            ),
+            move |window, cx| {
+                on_now(UpdateChoice::Now, window, cx);
+                true
+            },
+        );
+        let actions = if running_jobs == 0 {
+            vec![later.clone(), now]
+        } else {
+            vec![]
+        };
         open_with_policy(
             window,
             cx,
             tr(language, Text::UpdateConfirmTitle).into(),
-            UpdateContent { language, update },
-            vec![
-                later.clone(),
-                ModalAction::new(
-                    "update-now",
-                    tr(language, Text::UpdateNow),
-                    move |window, cx| {
-                        on_now(window, cx);
-                        true
-                    },
-                ),
-            ],
+            UpdateContent {
+                language,
+                update,
+                running_jobs,
+                on_choice,
+            },
+            actions,
             Some(later),
         );
     }
@@ -53,6 +104,8 @@ impl UpdateDialog {
 struct UpdateContent {
     language: Language,
     update: AvailableUpdate,
+    running_jobs: usize,
+    on_choice: ChoiceCallback,
 }
 
 impl RenderOnce for UpdateContent {
@@ -93,5 +146,40 @@ impl RenderOnce for UpdateContent {
                     .aria_label(notes.clone())
                     .child(notes),
             )
+            .when(self.running_jobs > 0, |this| {
+                let warning = tr_fmt(
+                    self.language,
+                    Text::UpdateJobsRunning,
+                    &[&self.running_jobs.to_string()],
+                );
+                this.child(
+                    div()
+                        .id("update-jobs-running")
+                        .test_support()
+                        .aria_label(warning.clone())
+                        .child(warning),
+                )
+                .children(
+                    [
+                        (
+                            "update-after-jobs",
+                            Text::UpdateAfterJobs,
+                            UpdateChoice::AfterJobs,
+                        ),
+                        ("update-now", Text::UpdateNowStop, UpdateChoice::Now),
+                        ("update-later", Text::UpdateLater, UpdateChoice::Later),
+                    ]
+                    .into_iter()
+                    .map(|(id, text, choice)| {
+                        let on_choice = self.on_choice.clone();
+                        Button::new(id).label(tr(self.language, text)).on_click(
+                            move |_, window, cx| {
+                                window.close_dialog(cx);
+                                on_choice(choice, window, cx);
+                            },
+                        )
+                    }),
+                )
+            })
     }
 }

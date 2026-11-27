@@ -16,6 +16,8 @@ pub(super) const MARKERS_DIR: &str = ".markers";
 /// How a component is built.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Kind {
+    /// The upstream Makefile's shared library install target (no configure step).
+    Make,
     /// `configure`, `make`, `make install`.
     Autotools,
     /// `meson setup`, `meson compile`, `meson install`.
@@ -29,6 +31,10 @@ pub(super) fn plan(target: Target, prefix: &str) -> Vec<(&'static Source, Kind, 
         .filter(|source| source.nested.is_none())
         .map(|source| {
             let (kind, args) = match source.name {
+                "openh264" => (
+                    Kind::Make,
+                    vec![format!("PREFIX={prefix}"), "install-shared".into()],
+                ),
                 "ffmpeg" => (Kind::Autotools, recipe::ffmpeg_configure(target, prefix)),
                 "freetype" => (Kind::Autotools, recipe::freetype_configure(prefix)),
                 "fribidi" => (Kind::Autotools, recipe::fribidi_configure(prefix)),
@@ -222,6 +228,15 @@ fn compile(
     env: &[(String, String)],
 ) -> Result<()> {
     match kind {
+        Kind::Make => {
+            let mut make = vec![
+                "-f".into(),
+                src.join("Makefile").display().to_string(),
+                format!("-j{jobs}"),
+            ];
+            make.extend(args.iter().cloned());
+            run(Path::new("make"), &make, build, env)
+        }
         Kind::Autotools => {
             if source.name == "freetype" {
                 // Its configure copies docs/markdown for an out-of-tree build and prints an
@@ -246,6 +261,19 @@ fn compile(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn openh264_is_installed_shared_before_ffmpeg_on_both_targets() {
+        for target in [Target::Macos, Target::Ubuntu] {
+            let plan = plan(target, "/p");
+            let (source, kind, args) = &plan[0];
+            assert_eq!(source.name, "openh264");
+            assert_eq!(format!("{kind:?}"), "Make");
+            assert!(args.iter().any(|arg| arg == "PREFIX=/p"));
+            assert!(args.iter().any(|arg| arg == "install-shared"));
+            assert_eq!(plan[1].0.name, "ffmpeg");
+        }
+    }
 
     #[test]
     fn the_plan_follows_the_source_table_and_names_mpv_last() {

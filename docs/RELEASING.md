@@ -16,7 +16,31 @@ Status of this document: the macOS packaging was run on a real Mac (Apple Silico
 | `<artifact>.sig` | | Ed25519 signature of the SHA-256 of the artifact |
 | `latest.json` | | Update manifest, schema 1, with both languages of the notes |
 
-The file names follow `video-all-in-one-<version>-<platform_key>.<ext>`; `cargo xtask latest-json` finds the artifacts by this pattern.
+The file names follow `video-all-in-one-<version>-<platform_key>.<ext>`; `cargo xtask latest-json` finds the artifacts by this pattern. The development build's files, `video-all-in-one-<version>-dev-<platform_key>.<ext>`, are never part of this release (see "The development build and the dev release").
+
+## The development build and the dev release
+
+Every release also builds the development app (no `production` feature) from the same commit, and publishes it as a second, separate GitHub pre-release. It is for testers.
+
+| | Production | Development |
+|---|---|---|
+| App name | `Video All-in-One` | `Video All-in-One (Dev)` |
+| Identifier and data folder | `app.videoallinone` | `app.videoallinone.dev` |
+| Executable and package name | `video-all-in-one` | `video-all-in-one-dev` |
+| Icon | `assets/icons/generated/production/` | `assets/icons/generated/development/` (amber DEV band) |
+| Windows | `Programs\Video All-in-One`, uninstall key `app.videoallinone` | `Programs\Video All-in-One (Dev)`, uninstall key `app.videoallinone.dev`, own Start-menu entry |
+| macOS | `Video All-in-One.app` | `Video All-in-One (Dev).app` |
+| Ubuntu | package `video-all-in-one`, `/usr/lib/video-all-in-one` | package `video-all-in-one-dev`, `/usr/lib/video-all-in-one-dev`, own desktop entry |
+| Release file | `video-all-in-one-X.Y.Z-<platform_key>.<ext>` | `video-all-in-one-X.Y.Z-dev-<platform_key>.<ext>` |
+| Updates | checks and installs updates | never checks for updates |
+
+So both can be installed side by side with separate settings and data.
+
+- **Build by hand:** `cargo build --release -p vaio-desktop` (without `--features production`), then `cargo xtask package --channel dev --target <os> ...` (the default is `--channel production`). On Ubuntu link with the run path `$ORIGIN/../lib/video-all-in-one-dev`. A dev package is an installer only (`.dmg`, `.exe`, `.deb`): no update zip, and it is never signed with the update key.
+- **Tag and release:** the dev release is the pre-release `dev-vX.Y.Z` (title `Video All-in-One X.Y.Z (development build)`), created by the `sign and publish` job after the production release. The tag is `dev-vX.Y.Z` and not `vX.Y.Z-dev` because the workflow runs on every pushed tag `v*`; a tag starting with `v` would start it again. It is created with `--prerelease --latest=false`, so it is never the "latest" release: `releases/latest/download/latest.json` keeps pointing at the production release. It has no `latest.json`.
+- **`latest-json` and signing ignore every `-dev-` file.** The production release never contains one, and `--require` still fails when a production artifact is missing even if its dev file exists.
+- **How testers install it:** open the Releases page, pick the pre-release `dev-vX.Y.Z`, download the file for the OS (`.dmg`, `.exe` or `.deb`) and install it by hand like any first install (see "First-run warnings"). It does not update itself: to get a newer dev build, install the next `dev-v...` pre-release.
+- **Verify** (not yet run on a real release): a manual `workflow_dispatch` run builds both sets of artifacts and publishes nothing; after a real release check that `dev-vX.Y.Z` is a pre-release with four files and that `releases/latest/download/latest.json` still resolves to the production release.
 
 ## One-time setup
 
@@ -38,6 +62,10 @@ Do these once, on your own machine. The agent that wrote the pipeline did not do
    - Variable (not a secret) `UPDATE_PUBLIC_KEY`: the content of `update-signing.pub`. It must be the same key as the constant in `public_key.rs`. `latest-json` refuses any artifact whose signature does not verify with it, so a wrong value stops the release; a value that differs from the compiled-in key would make a release that installed apps reject.
 5. Protect release tags: Settings, Rules, Rulesets, New tag ruleset. Target the pattern `v*`. Turn on "Restrict creations", "Restrict updates" and "Restrict deletions", and allow only the repository owner to bypass. Without this, anyone with write access can publish a release.
 6. Settings, Actions, General: set the default workflow permissions to read-only. The release workflow asks for `contents: write` only in its last job.
+
+## Upgrade checks
+
+Run the upgrade checks in `docs/testing/clean-machine-checklist.md` as part of every release on each supported system. The first Windows build is also the first time the installer script is compiled, so the release manager watches that step. During an update, macOS keeps its backup in a hidden `.vaio-update-*` folder next to the app, Windows uses `.previous`, and Ubuntu has no backup folder because `dpkg` manages the files.
 
 ## How to release
 
@@ -84,11 +112,23 @@ Release packages bundle only LGPL builds of libmpv and FFmpeg. Homebrew's builds
 - Pinned hash: `ci.yml` and `release.yml` have `LIBMPV_SHA256_LINUX_X86_64`, `LIBMPV_SHA256_MACOS_ARM64` and `LIBMPV_SHA256_MACOS_X86_64` at the top. They say `PENDING-first-build` until the first build is published, and the download step fails with a clear message while they do. After the first build, copy each printed SHA-256 into both files. The step downloads the archive, compares the SHA-256 and only then unpacks it to `$RUNNER_TEMP/libmpv`, and sets `PKG_CONFIG_PATH`, `LIBRARY_PATH` and `RUSTFLAGS` (`-L native=DIR/lib` and a run path to it) for the build and the tests.
 - Rebuild or update: change the row of the component in `sources.rs` (new URL, new SHA-256 taken from the upstream release and checked by comparing with a second download), raise `RECIPE_VERSION` and `LIBMPV_RECIPE`, run the workflow, pin the new hashes.
 - macOS packager: `--libmpv-dir DIR` bundles the libraries of `DIR/lib` and nothing from Homebrew, and puts `DIR/LICENSES` into `Contents/Resources/third-party`. Without it the packager refuses, unless `--allow-gpl-for-local-testing` is given (the old Homebrew path, local tests only).
-- Ubuntu packager: `--libmpv-dir DIR` is required. The libraries go to `/usr/lib/video-all-in-one/`, the licence texts to `/usr/share/doc/video-all-in-one/third-party/`. The executable finds them through the run path `$ORIGIN/../lib/video-all-in-one`, which `release.yml` sets at build time through `RUSTFLAGS` (`-C link-arg=-Wl,-rpath,$ORIGIN/../lib/video-all-in-one`); the packager refuses an executable without it. `Depends:` is derived at packaging time from `readelf -d` of the executable and of every bundled library (`xtask/src/package/elf.rs` maps each soname to its Ubuntu package and fails on a soname it does not know); `libc6 (>= 2.35)` is the floor, so one package runs on 22.04 and 24.04. `Recommends: ffmpeg` stays.
+- Ubuntu packager: `--libmpv-dir DIR` is required. The libraries go to `/usr/lib/video-all-in-one/`, the licence texts to `/usr/share/doc/video-all-in-one/third-party/`. The executable finds them through the run path `$ORIGIN/../lib/video-all-in-one`, which `release.yml` sets at build time through `RUSTFLAGS` (`-C link-arg=-Wl,-rpath,$ORIGIN/../lib/video-all-in-one`); the packager refuses an executable without it. `Depends:` is derived at packaging time from `readelf -d` of the executable and of every bundled library (`xtask/src/package/elf.rs` maps each soname to its Ubuntu package and fails on a soname it does not know); `libc6 (>= 2.35)` is the floor, so one package runs on 22.04 and 24.04.
+
+## Bundled FFmpeg and FFprobe
+
+The macOS and Ubuntu packages include FFmpeg and FFprobe from the same LGPL build as libmpv. They are installed in `Contents/Resources/bin` inside the macOS app and `/usr/lib/video-all-in-one/bin` on Ubuntu. The Windows installer is intended to install them in `<install folder>\bin`.
+
+The libmpv recipe version is 2. Before a build can use these archives, the three archive hashes must be copied from the Build libmpv workflow into `LIBMPV_SHA256_LINUX_X86_64`, `LIBMPV_SHA256_MACOS_ARM64` and `LIBMPV_SHA256_MACOS_X86_64` in both `ci.yml` and `release.yml`. Those values are currently `PENDING-first-build`, so the workflows stop before building until the first archives are published and pinned.
+
+The package licence scan refuses FFmpeg builds configured with `--enable-gpl`, `--enable-nonfree` or `--enable-libx264`.
+
+Precise cut chooses an H.264 encoder offered by FFmpeg in this order: `libopenh264`, then `libx264`, then `h264_mf` on Windows, then `h264_videotoolbox` on macOS.
+
+**NOT YET DONE:** Windows FFmpeg and FFprobe must come from the pinned LGPL build and be copied into a release of this repository before Windows packages can use them; see the Windows FFmpeg research note. The universal macOS DMG is also not yet done; the current packages have separate Apple silicon and Intel DMGs.
 
 ## App icons
 
-The icons come from two SVG files: `assets/icons/app-icon.svg` (production) and `assets/icons/app-icon-dev.svg` (development, the same icon with an amber DEV band). To replace them, edit the SVGs (1024 x 1024, no text elements), run `cargo xtask icons` and commit the changed files in `assets/icons/generated/`. CI runs `cargo xtask icons --check` on Ubuntu and fails when the committed files differ from what the SVGs produce. The packagers use `generated/production/`: `icon.icns` becomes `AppIcon.icns` in the macOS bundle, `icon.ico` is the icon of the Windows installer and uninstaller, and `icon.png` is installed in the `.deb` as the `hicolor` 512x512 icon. The window icon of a running app is not set yet (GPUI only supports it on X11 and needs the `image` crate for it).
+The icons come from two SVG files: `assets/icons/app-icon.svg` (production) and `assets/icons/app-icon-dev.svg` (development, the same icon with an amber DEV band). To replace them, edit the SVGs (1024 x 1024, no text elements), run `cargo xtask icons` and commit the changed files in `assets/icons/generated/`. CI runs `cargo xtask icons --check` on Ubuntu and fails when the committed files differ from what the SVGs produce. The production packagers use `generated/production/` and the dev packagers (`--channel dev`) use `generated/development/`: `icon.icns` becomes `AppIcon.icns` in the macOS bundle, `icon.ico` is the icon of the Windows installer and uninstaller, and `icon.png` is installed in the `.deb` as the `hicolor` 512x512 icon. The window icon of a running app is not set yet (GPUI only supports it on X11 and needs the `image` crate for it).
 
 ## First-run warnings
 
@@ -123,7 +163,7 @@ If the app cannot install an update itself, it downloads and verifies the file a
 | libmpv for Windows | `MPV_WIN_URL` and `MPV_WIN_SHA256` in both workflow files; LGPL build of `zhongfly/mpv-winbuild` | Pick a newer release, copy the SHA-256 shown on its page, change both values in both files |
 | libmpv and FFmpeg libraries for macOS and Ubuntu | Our own LGPL build: sources pinned in `xtask/src/libmpv/sources.rs`, archives pinned by `LIBMPV_SHA256_*` in both workflow files | See "Our own libmpv" |
 | `ffmpeg` command in CI tests | Homebrew and apt, not pinned. A test tool only, never shipped | Whatever the runner installs |
-| FFmpeg, FFprobe, yt-dlp | Not bundled yet. They come from the `PATH` (sprint 4 bundles and pins them with checksums and licence notices) | |
+| `yt-dlp` | Not bundled; it comes from the `PATH` | |
 
 ## Licences
 

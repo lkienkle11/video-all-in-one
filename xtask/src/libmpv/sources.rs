@@ -5,7 +5,7 @@
 /// The version of this recipe. It is the number in the release tag `libmpv-<RECIPE_VERSION>` and
 /// in the archive names. Change it whenever a row, a flag or a build step changes, so that a new
 /// archive never overwrites an old one. The workflow files carry the same number.
-pub(crate) const RECIPE_VERSION: &str = "1";
+pub(crate) const RECIPE_VERSION: &str = "2";
 
 /// One source archive.
 pub(crate) struct Source {
@@ -36,7 +36,16 @@ impl Source {
 }
 
 /// The components in build order: each one only needs the ones before it.
-pub(crate) const SOURCES: [Source; 9] = [
+pub(crate) const SOURCES: [Source; 10] = [
+    Source {
+        name: "openh264",
+        version: "2.7.0",
+        url: "https://github.com/cisco/openh264/archive/refs/tags/v2.7.0.tar.gz",
+        sha256: "5178775c8b440073e70920e97d195efff721c0e56d0a78cc82c919e95d54924d",
+        file: "openh264-v2.7.0.tar.gz",
+        licenses: &["LICENSE"],
+        nested: None,
+    },
     Source {
         name: "ffmpeg",
         version: "7.1.5",
@@ -136,6 +145,41 @@ mod tests {
     use std::path::Path;
 
     #[test]
+    fn openh264_source_is_pinned_with_a_sha256() {
+        let openh264 = source("openh264");
+        assert_eq!(openh264.version, "2.7.0");
+        assert_eq!(
+            openh264.url,
+            "https://github.com/cisco/openh264/archive/refs/tags/v2.7.0.tar.gz"
+        );
+        assert_eq!(
+            openh264.sha256,
+            "5178775c8b440073e70920e97d195efff721c0e56d0a78cc82c919e95d54924d"
+        );
+        assert_eq!(openh264.file, "openh264-v2.7.0.tar.gz");
+        assert_eq!(openh264.licenses, &["LICENSE"]);
+        let position = |name| SOURCES.iter().position(|s| s.name == name).unwrap();
+        assert!(position("openh264") < position("ffmpeg"));
+    }
+
+    #[test]
+    fn recipe_version_matches_workflows() {
+        assert_eq!(RECIPE_VERSION, "2");
+        let workflows = Path::new(env!("CARGO_MANIFEST_DIR")).join("../.github/workflows");
+        for name in ["build-libmpv.yml", "ci.yml", "release.yml"] {
+            let text = std::fs::read_to_string(workflows.join(name)).unwrap();
+            assert!(text.contains("LIBMPV_RECIPE: \"2\""), "{name}");
+            if name != "build-libmpv.yml" {
+                assert!(text.contains("/releases/download/libmpv-2"), "{name}");
+                for arch in ["MACOS_ARM64", "MACOS_X86_64", "LINUX_X86_64"] {
+                    let expected = format!("LIBMPV_SHA256_{arch}: \"PENDING-first-build\"");
+                    assert!(text.contains(&expected), "{name} lacks {expected}");
+                }
+            }
+        }
+    }
+
+    #[test]
     fn every_entry_has_a_64_hex_sha256_and_an_https_url() {
         for source in &SOURCES {
             assert_eq!(source.sha256.len(), 64, "{}", source.name);
@@ -192,7 +236,7 @@ mod tests {
     fn mpv_and_ffmpeg_are_present_and_mpv_comes_last() {
         assert_eq!(source("ffmpeg").name, "ffmpeg");
         assert_eq!(SOURCES.last().unwrap().name, "mpv");
-        assert_eq!(SOURCES.first().unwrap().name, "ffmpeg");
+        assert_eq!(SOURCES.first().unwrap().name, "openh264");
     }
 
     /// The workflow files repeat the recipe version; they must agree with the code.

@@ -30,7 +30,7 @@ pub(super) fn manifest(recipe: &str, target: Target, built: &[Built]) -> String 
 /// `LICENSES/SOURCES.txt`: the download URL of the source archive of every component.
 pub(super) fn sources_notice(built: &[Built]) -> String {
     let mut text = String::from(
-        "The libraries in this package are built, unmodified, from these source archives.\n\
+        "The libraries and programs in this package are built, unmodified, from these source archives.\n\
          The licence texts of each component are next to this file.\n\n",
     );
     for item in built {
@@ -72,6 +72,22 @@ mod tests {
                 flags: vec!["-Dgpl=false".into()],
             },
         ]
+    }
+
+    #[test]
+    fn build_manifest_and_sources_notice_include_openh264() {
+        let built: Vec<Built<'static>> = crate::libmpv::steps::plan(Target::Ubuntu, "/p")
+            .into_iter()
+            .map(|(source, _, flags)| Built { source, flags })
+            .collect();
+        let manifest = manifest("2", Target::Ubuntu, &built);
+        assert!(manifest.contains(
+            "openh264 | 2.7.0 | 5178775c8b440073e70920e97d195efff721c0e56d0a78cc82c919e95d54924d |"
+        ));
+        let notice = sources_notice(&built);
+        assert!(
+            notice.contains("https://github.com/cisco/openh264/archive/refs/tags/v2.7.0.tar.gz")
+        );
     }
 
     #[test]

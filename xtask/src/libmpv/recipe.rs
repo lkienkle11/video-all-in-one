@@ -1,17 +1,20 @@
 //! The configure and meson arguments of every component. They are plain data so that the LGPL
-//! guarantees (no GPL, no non-free, no external codec libraries) can be tested on any machine.
+//! guarantees (no GPL, no non-free, only the pinned OpenH264 codec) can be tested on any machine.
 //! The option names were checked against the pinned source archives (see `sources.rs`).
 
 use super::Target;
 
-/// FFmpeg: LGPL, shared, no programs, only the native decoders.
+/// FFmpeg: LGPL, shared, FFmpeg and FFprobe programs, and the pinned OpenH264 codec.
 pub(super) fn ffmpeg_configure(target: Target, prefix: &str) -> Vec<String> {
     let mut args = strings(&[
         "--disable-gpl",
         "--disable-nonfree",
         "--enable-shared",
         "--disable-static",
-        "--disable-programs",
+        "--enable-ffmpeg",
+        "--enable-ffprobe",
+        "--disable-ffplay",
+        "--enable-libopenh264",
         "--disable-doc",
         "--disable-avdevice",
         // Nothing outside FFmpeg is linked unless it is named below.
@@ -207,7 +210,32 @@ mod tests {
     }
 
     #[test]
-    fn ffmpeg_is_lgpl_shared_and_links_no_external_codec_library() {
+    fn ffmpeg_configure_enables_openh264_and_never_gpl() {
+        for target in [Target::Macos, Target::Ubuntu] {
+            let args = ffmpeg_configure(target, "/p");
+            assert!(
+                has(&args, "--enable-libopenh264"),
+                "{target:?} lacks OpenH264"
+            );
+            for banned in ["--enable-gpl", "--enable-nonfree", "--enable-libx264"] {
+                assert!(!has(&args, banned), "{target:?} enables {banned}");
+            }
+        }
+    }
+
+    #[test]
+    fn ffmpeg_programs_are_built() {
+        for target in [Target::Macos, Target::Ubuntu] {
+            let args = ffmpeg_configure(target, "/p");
+            for wanted in ["--enable-ffmpeg", "--enable-ffprobe", "--disable-ffplay"] {
+                assert!(has(&args, wanted), "{target:?} lacks {wanted}");
+            }
+            assert!(!has(&args, "--disable-programs"));
+        }
+    }
+
+    #[test]
+    fn ffmpeg_is_lgpl_shared_and_links_only_the_pinned_external_codec() {
         for target in [Target::Ubuntu, Target::Macos] {
             let args = ffmpeg_configure(target, "/p");
             for wanted in [
@@ -215,7 +243,9 @@ mod tests {
                 "--disable-nonfree",
                 "--enable-shared",
                 "--disable-static",
-                "--disable-programs",
+                "--enable-ffmpeg",
+                "--enable-ffprobe",
+                "--disable-ffplay",
                 "--disable-doc",
                 "--disable-autodetect",
                 "--prefix=/p",
@@ -228,8 +258,8 @@ mod tests {
                     "{arg}"
                 );
                 assert!(
-                    !arg.starts_with("--enable-lib"),
-                    "no external library may be linked: {arg}"
+                    !arg.starts_with("--enable-lib") || arg == "--enable-libopenh264",
+                    "only the pinned OpenH264 external codec may be linked: {arg}"
                 );
             }
         }

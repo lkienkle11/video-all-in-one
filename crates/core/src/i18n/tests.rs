@@ -16,6 +16,44 @@ fn every_text_has_non_empty_english_and_vietnamese() {
 }
 
 #[test]
+fn every_new_text_exists_in_both_languages() {
+    for (text, english, vietnamese) in [
+        (
+            Text::UpdateJobsRunning,
+            "{0} exports are still running. Updating now stops them.",
+            "Đang có {0} lần xuất chưa xong. Cập nhật ngay sẽ dừng chúng.",
+        ),
+        (
+            Text::UpdateAfterJobs,
+            "Update after they finish",
+            "Cập nhật sau khi xong",
+        ),
+        (
+            Text::UpdateNowStop,
+            "Update now and stop them",
+            "Cập nhật ngay và dừng chúng",
+        ),
+        (
+            Text::UpdateWaitingForJobs,
+            "Waiting for the exports to finish…",
+            "Đang chờ các lần xuất hoàn tất…",
+        ),
+    ] {
+        assert!(Text::ALL.contains(&text));
+        assert_eq!(tr(Language::English, text), english);
+        assert_eq!(tr(Language::Vietnamese, text), vietnamese);
+    }
+    assert_eq!(
+        tr_fmt(Language::English, Text::UpdateJobsRunning, &["3"]),
+        "3 exports are still running. Updating now stops them."
+    );
+    assert_eq!(
+        tr_fmt(Language::Vietnamese, Text::UpdateJobsRunning, &["3"]),
+        "Đang có 3 lần xuất chưa xong. Cập nhật ngay sẽ dừng chúng."
+    );
+}
+
+#[test]
 fn vietnamese_differs_from_english_for_every_text_except_app_title() {
     for text in Text::ALL {
         // The app name and the language names are the same word in both languages.
@@ -208,8 +246,18 @@ fn index(t: Text) -> usize {
         Text::MissingToolFolder => 97,
         Text::MissingToolCheck => 98,
         Text::MissingToolInvalid => 99,
-        Text::UpdateNotSetUp => 100,
-        Text::UpdateErrorFileTitle => 101,
+        Text::MissingToolDamaged => 100,
+        Text::UpdateNotSetUp => 101,
+        Text::UpdateErrorFileTitle => 102,
+        Text::StartupErrorTitle => 103,
+        Text::StartupNewerData => 104,
+        Text::StartupUnknownDatabase => 105,
+        Text::StartupOther => 106,
+        Text::StartupDataFolder => 107,
+        Text::UpdateJobsRunning => 108,
+        Text::UpdateAfterJobs => 109,
+        Text::UpdateNowStop => 110,
+        Text::UpdateWaitingForJobs => 111,
     }
 }
 
@@ -223,7 +271,7 @@ fn text_all_lists_every_variant_in_enum_order() {
         );
     }
     // The last variant has the highest index.
-    let highest = index(Text::UpdateErrorFileTitle);
+    let highest = index(Text::UpdateWaitingForJobs);
     assert_eq!(
         Text::ALL.len(),
         highest + 1,
@@ -273,5 +321,26 @@ fn language_roundtrips_through_code() {
     assert_eq!(Language::from_code(""), None);
     for language in [Language::English, Language::Vietnamese] {
         assert_eq!(Language::from_code(language.code()), Some(language));
+    }
+}
+
+#[test]
+fn every_startup_text_exists_in_both_languages() {
+    for text in [
+        Text::StartupErrorTitle,
+        Text::StartupNewerData,
+        Text::StartupUnknownDatabase,
+        Text::StartupOther,
+        Text::StartupDataFolder,
+    ] {
+        assert!(Text::ALL.contains(&text), "{text:?} is not in Text::ALL");
+        assert!(
+            !tr(Language::English, text).is_empty(),
+            "{text:?} has no English text"
+        );
+        assert!(
+            !tr(Language::Vietnamese, text).is_empty(),
+            "{text:?} has no Vietnamese text"
+        );
     }
 }

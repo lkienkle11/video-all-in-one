@@ -6,7 +6,7 @@ use std::path::Path;
 use std::process::Command;
 
 /// Makes the archive `out` (`.tar.gz`) from the folder `dir` and returns its SHA-256. The folder
-/// must be a finished build: it needs `lib`, `include` and `MANIFEST.txt`.
+/// must be a finished build, including FFmpeg, FFprobe, OpenH264 and its licence.
 pub(super) fn pack(dir: &Path, out: &Path) -> Result<String> {
     let name = out
         .file_name()
@@ -15,8 +15,41 @@ pub(super) fn pack(dir: &Path, out: &Path) -> Result<String> {
     if !name.ends_with(".tar.gz") {
         bail!("the archive name must end in .tar.gz, not {name:?}");
     }
-    for needed in ["lib", "include", "MANIFEST.txt"] {
+    for needed in [
+        "lib",
+        "include",
+        "MANIFEST.txt",
+        "bin/ffmpeg",
+        "bin/ffprobe",
+    ] {
         if !dir.join(needed).exists() {
+            bail!(
+                "{} is not a finished libmpv build: {needed} is missing",
+                dir.display()
+            );
+        }
+    }
+    let openh264 = std::fs::read_dir(dir.join("lib"))?.try_fold(false, |found, entry| {
+        let entry = entry?;
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        Ok::<_, std::io::Error>(
+            found
+                || (entry.path().is_file()
+                    && name.starts_with("libopenh264")
+                    && (name.ends_with(".dylib")
+                        || name.ends_with(".so")
+                        || name.contains(".so."))),
+        )
+    })?;
+    if !openh264 {
+        bail!(
+            "{} is not a finished libmpv build: libopenh264 shared library is missing",
+            dir.display()
+        );
+    }
+    for needed in ["LICENSES/openh264-LICENSE", "LICENSES/SOURCES.txt"] {
+        if !dir.join(needed).is_file() {
             bail!(
                 "{} is not a finished libmpv build: {needed} is missing",
                 dir.display()
@@ -69,6 +102,33 @@ mod tests {
         std::fs::write(dir.join("MANIFEST.txt"), b"manifest").unwrap();
         std::fs::create_dir_all(dir.join(".markers")).unwrap();
         std::fs::write(dir.join(".markers/ffmpeg"), b"hash").unwrap();
+        std::fs::create_dir_all(dir.join("bin")).unwrap();
+        std::fs::write(dir.join("bin/ffmpeg"), b"ffmpeg").unwrap();
+        std::fs::write(dir.join("bin/ffprobe"), b"ffprobe").unwrap();
+        std::fs::write(dir.join("lib/libopenh264.so.8"), b"library").unwrap();
+        std::fs::create_dir_all(dir.join("LICENSES")).unwrap();
+        std::fs::write(dir.join("LICENSES/openh264-LICENSE"), b"licence").unwrap();
+        std::fs::write(dir.join("LICENSES/SOURCES.txt"), b"sources").unwrap();
+    }
+
+    #[test]
+    fn a_build_without_ffmpeg_ffprobe_or_openh264_is_refused() {
+        let root = scratch("missing-programs");
+        let dir = root.join("libmpv");
+        build_folder(&dir);
+        for file in ["bin/ffmpeg", "bin/ffprobe", "lib/libopenh264.so.8"] {
+            std::fs::remove_file(dir.join(file)).unwrap();
+        }
+        for missing in ["bin/ffmpeg", "bin/ffprobe", "libopenh264"] {
+            let out = root.join(format!("{missing}.tar.gz").replace('/', "-"));
+            let error = pack(&dir, &out).expect_err("incomplete recipe 2 build must be refused");
+            assert!(error.to_string().contains(missing), "{error}");
+            if missing.starts_with("bin/") {
+                std::fs::create_dir_all(dir.join("bin")).unwrap();
+                std::fs::write(dir.join(missing), b"program").unwrap();
+            }
+        }
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
@@ -82,7 +142,16 @@ mod tests {
         assert_eq!(hash.len(), 64);
         let listing = Command::new("tar").arg("-tzf").arg(&out).output().unwrap();
         let listing = String::from_utf8_lossy(&listing.stdout).into_owned();
-        for wanted in ["./lib/libmpv.so.2", "./lib/libmpv.so", "./MANIFEST.txt"] {
+        for wanted in [
+            "./lib/libmpv.so.2",
+            "./lib/libmpv.so",
+            "./MANIFEST.txt",
+            "./bin/ffmpeg",
+            "./bin/ffprobe",
+            "./lib/libopenh264.so.8",
+            "./LICENSES/openh264-LICENSE",
+            "./LICENSES/SOURCES.txt",
+        ] {
             assert!(
                 listing.lines().any(|l| l == wanted),
                 "{wanted} in\n{listing}"

@@ -1,10 +1,11 @@
 //! Connects the update service to the application: what to build, and how its states reach the UI.
 
+use crate::state::AppState;
 use crate::ui::{
     settings::{SettingsView, UpdateCommand},
-    update_dialog::UpdateDialog,
+    update_dialog::{UpdateChoice, UpdateDialog},
 };
-use gpui_kit::{App, WeakEntity, Window};
+use gpui_kit::{App, Entity, Subscription, WeakEntity, Window};
 use std::{
     cell::{Cell, RefCell},
     path::PathBuf,
@@ -163,13 +164,16 @@ pub(crate) struct UpdateController {
     on_restart: Rc<dyn Fn(&mut App)>,
     observer: Option<StateObserver>,
     busy: Cell<bool>,
+    state: WeakEntity<AppState>,
+    waiting: RefCell<Option<Subscription>>,
 }
 
 impl UpdateController {
     pub(crate) fn new(
         setup: &mut UpdateSetup,
-        runtime: Handle,
+        state: &Entity<AppState>,
         on_restart: Rc<dyn Fn(&mut App)>,
+        cx: &App,
     ) -> Rc<Self> {
         Rc::new(Self {
             driver: setup
@@ -177,11 +181,13 @@ impl UpdateController {
                 .take()
                 .map(|driver| Arc::new(Mutex::new(driver))),
             restart: setup.restart.clone(),
-            runtime,
+            runtime: state.read(cx).runtime().clone(),
             settings: RefCell::new(None),
             on_restart,
             observer: setup.observer.take(),
             busy: Cell::new(false),
+            state: state.downgrade(),
+            waiting: RefCell::new(None),
         })
     }
 
@@ -196,10 +202,12 @@ impl UpdateController {
         window: &mut Window,
         cx: &mut App,
     ) {
+        self.cancel_wait(cx);
         let step = match command {
             UpdateCommand::Check => Step::Check,
             UpdateCommand::Download => Step::Download,
             UpdateCommand::Install => Step::Install,
+            UpdateCommand::Later => return,
         };
         self.run(step, false, window, cx);
     }
@@ -219,6 +227,7 @@ impl UpdateController {
     }
 
     fn run(self: &Rc<Self>, step: Step, then_install: bool, window: &mut Window, cx: &mut App) {
+        self.cancel_wait(cx);
         let Some(driver) = self.driver.clone() else {
             if let Some(settings) = self.settings.borrow().as_ref().and_then(|s| s.upgrade()) {
                 settings.update(cx, |settings, cx| settings.set_updates_unavailable(cx));
@@ -303,13 +312,59 @@ impl UpdateController {
             .and_then(|settings| settings.upgrade())
             .map_or(Language::English, |settings| settings.read(cx).language());
         let this = self.clone();
-        UpdateDialog::open(
+        let running_jobs = self
+            .state
+            .upgrade()
+            .map_or(0, |state| state.read(cx).running_job_count());
+        UpdateDialog::open_with_jobs(
             language,
             update,
-            move |window, cx| this.run(Step::Download, true, window, cx),
-            |_, _| {},
+            running_jobs,
+            move |choice, window, cx| {
+                this.cancel_wait(cx);
+                match choice {
+                    UpdateChoice::AfterJobs => this.wait_for_jobs(window, cx),
+                    UpdateChoice::Now => this.run(Step::Download, true, window, cx),
+                    UpdateChoice::Later => {}
+                }
+            },
             window,
             cx,
         );
+    }
+
+    fn cancel_wait(&self, cx: &mut App) {
+        if self.waiting.borrow_mut().take().is_some() {
+            self.show_waiting(false, cx);
+        }
+    }
+
+    fn show_waiting(&self, waiting: bool, cx: &mut App) {
+        if let Some(settings) = self.settings.borrow().as_ref().and_then(|s| s.upgrade()) {
+            settings.update(cx, |settings, cx| settings.set_update_waiting(waiting, cx));
+        }
+    }
+
+    fn wait_for_jobs(self: &Rc<Self>, window: &mut Window, cx: &mut App) {
+        let Some(state) = self.state.upgrade() else {
+            return;
+        };
+        if state.read(cx).running_job_count() == 0 {
+            self.run(Step::Download, true, window, cx);
+            return;
+        }
+        let this = Rc::downgrade(self);
+        let window = window.window_handle();
+        *self.waiting.borrow_mut() = Some(cx.observe(&state, move |state, cx| {
+            let Some(this) = this.upgrade() else {
+                return;
+            };
+            if state.read(cx).running_job_count() == 0 {
+                let _ = window.update(cx, |_, window, cx| {
+                    this.run(Step::Download, true, window, cx);
+                });
+            }
+        }));
+        self.show_waiting(true, cx);
     }
 }
