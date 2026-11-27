@@ -28,9 +28,9 @@ env:
   # Replace each PENDING value with the SHA-256 the Build libmpv workflow prints for that archive.
   LIBMPV_RECIPE: "2"
   LIBMPV_URL_BASE: "https://github.com/${{ github.repository }}/releases/download/libmpv-2"
-  LIBMPV_SHA256_LINUX_X86_64: "PENDING-first-build"
-  LIBMPV_SHA256_MACOS_ARM64: "PENDING-first-build"
-  LIBMPV_SHA256_MACOS_X86_64: "PENDING-first-build"
+  LIBMPV_SHA256_LINUX_X86_64: "4ef741fd7df2b2b21c9dc5b6e2af7c96dba7223a3e8a0d6de64e990361826ea7"
+  LIBMPV_SHA256_MACOS_ARM64: "b0cb14c108991fa4b0c7496671f7335ee2adb9390adf9492b8b4beacaaab6e7c"
+  LIBMPV_SHA256_MACOS_X86_64: "ba8b537cac93dd7d371484a58ab1d4530468537d1adf27f68fc1ee187d4849ed"
   # Windows only: libmpv for Windows from the LGPL build of zhongfly/mpv-winbuild.
   MPV_WIN_URL: "https://github.com/zhongfly/mpv-winbuild/releases/download/2026-11-23-35efcf53d5/mpv-dev-lgpl-x86_64-20261123-git-35efcf53d5.7z"
   MPV_WIN_SHA256: "029892b3c3951bbb738d05a338698d330e0682b767ff7c142a4da68da68c175a"

@@ -172,8 +172,16 @@ mod tests {
             if name != "build-libmpv.yml" {
                 assert!(text.contains("/releases/download/libmpv-2"), "{name}");
                 for arch in ["MACOS_ARM64", "MACOS_X86_64", "LINUX_X86_64"] {
-                    let expected = format!("LIBMPV_SHA256_{arch}: \"PENDING-first-build\"");
-                    assert!(text.contains(&expected), "{name} lacks {expected}");
+                    let prefix = format!("LIBMPV_SHA256_{arch}: \"");
+                    let hash = text
+                        .lines()
+                        .find_map(|line| line.trim_start().strip_prefix(prefix.as_str()))
+                        .and_then(|rest| rest.strip_suffix('"'))
+                        .unwrap_or_else(|| panic!("{name} lacks {prefix}"));
+                    assert!(
+                        hash.len() == 64 && hash.bytes().all(|b| b.is_ascii_hexdigit()),
+                        "{name} {arch} is not a pinned SHA-256: {hash}"
+                    );
                 }
             }
         }
