@@ -2,7 +2,7 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::domain::export::{CutMode, ExportMode, PlanError};
+use crate::domain::export::{CutMode, ExportMode, H264Encoder, PlanError};
 use crate::services::media_planner::{plan_export, ExportRequest};
 use crate::services::media_planner_fixtures::{full_info, never, plan, plan_stem, plan_with, seg};
 
@@ -349,6 +349,7 @@ fn plan_paths(source: &str, out_dir: &str, stem: &str) -> Result<(), PlanError> 
         export: ExportMode::Merged,
         out_dir: Path::new(out_dir),
         stem,
+        precise_encoder: H264Encoder::X264,
     };
     plan_export(&request, &never).map(|_| ())
 }

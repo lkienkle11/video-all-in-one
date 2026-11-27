@@ -5,7 +5,7 @@ use std::{
 };
 use vaio_core::{
     domain::{
-        export::{CutMode, ExportMode, PlanError},
+        export::{CutMode, ExportMode, H264Encoder, PlanError},
         job::{JobId, JobKind},
         media::MediaInfo,
         segment::{normalize, Segment, SegmentError},
@@ -108,6 +108,8 @@ pub fn plan_export_job(
             export: options.mode,
             out_dir: &options.out_dir,
             stem: &options.stem,
+            // This request only validates the options; the runner picks the real encoder.
+            precise_encoder: H264Encoder::OpenH264,
         },
         &|path| path.exists(),
     )

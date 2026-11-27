@@ -3,7 +3,7 @@
 use std::ffi::OsString;
 use std::path::Path;
 
-use crate::domain::export::{CutMode, ExportMode, ExportPlan, PlanError};
+use crate::domain::export::{CutMode, ExportMode, ExportPlan, H264Encoder, PlanError};
 use crate::domain::media::{AudioStream, MediaInfo, VideoStream};
 use crate::domain::segment::Segment;
 use crate::domain::time::TimeMs;
@@ -68,6 +68,7 @@ pub(crate) fn plan_with(
         export,
         out_dir: Path::new("/out"),
         stem: "clip",
+        precise_encoder: H264Encoder::X264,
     };
     plan_export(&request, exists)
 }
@@ -93,6 +94,7 @@ pub(crate) fn plan_stem(stem: &str) -> Result<ExportPlan, PlanError> {
         export: ExportMode::Separate,
         out_dir: Path::new("/out"),
         stem,
+        precise_encoder: H264Encoder::X264,
     };
     plan_export(&request, &never)
 }

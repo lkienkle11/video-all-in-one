@@ -2,7 +2,7 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::domain::export::{CutMode, ExportMode, ExportPlan, PlanError};
+use crate::domain::export::{CutMode, ExportMode, ExportPlan, H264Encoder, PlanError};
 use crate::domain::media::{AudioStream, MediaInfo, VideoStream};
 use crate::domain::segment::Segment;
 use crate::domain::time::TimeMs;
@@ -40,6 +40,7 @@ fn plan(
             export: ExportMode::Separate,
             out_dir: Path::new(out_dir),
             stem: "clip",
+            precise_encoder: H264Encoder::X264,
         },
         exists,
     )
