@@ -44,3 +44,32 @@
 
 ## STEP 3:
 - using-git-worktrees
+
+## STEP 4:
+- subagent-driven-development
+- diff-type-subagents
+- test-driven-development
+- rust
+- media-pipeline-engineering
+- security-and-hardening
+- gpui-kit
+- structure-codebase
+- verification-before-completion
+
+## ADDED TO CHOOSEN SKILLS FOR THIS TASK (found missing at Step 4)
+- sqlite --- failure kind column and the safe migration of jobs.db (Task 2.5)
+- ffmpeg --- build, probe and verify FFmpeg/FFprobe and encoders (Tasks 1.4 to 1.7)
+- rust-async-patterns --- job runner pre-flight check and queue updates (Tasks 2.5 to 2.7)
+- dispatching-parallel-agents --- parallel groups of delegated tasks under diff-type-subagents
+
+## STEP 4 (added after review):
+- using-git-worktrees
+- systematic-debugging
+- web-research
+- gpui-kit-design-guides
+- gpui-video-timeline
+- durable-local-jobs
+- sqlite
+- ffmpeg
+- rust-async-patterns
+- dispatching-parallel-agents
