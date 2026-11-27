@@ -110,5 +110,10 @@ pub fn text(text: Text) -> &'static str {
         Text::MissingToolInvalid => "Không tìm thấy đủ FFmpeg và FFprobe trong thư mục đó.",
         Text::UpdateNotSetUp => "Bản dựng này chưa được thiết lập cập nhật.",
         Text::UpdateErrorFileTitle => "Lần cập nhật trước chưa hoàn tất",
+        Text::StartupErrorTitle => "Video All-in-One không mở được dữ liệu của bạn",
+        Text::StartupNewerData => "Dữ liệu của bạn được tạo bởi phiên bản Video All-in-One mới hơn. Hãy cài phiên bản mới nhất để mở nó.",
+        Text::StartupUnknownDatabase => "Tệp dữ liệu trong thư mục dữ liệu không phải của Video All-in-One. Chưa có gì bị thay đổi.",
+        Text::StartupOther => "Video All-in-One không mở được dữ liệu của mình. Video và tệp của bạn không bị thay đổi.",
+        Text::StartupDataFolder => "Thư mục dữ liệu: {0}",
     }
 }

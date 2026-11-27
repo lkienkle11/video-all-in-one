@@ -120,5 +120,10 @@ pub fn text(text: Text) -> &'static str {
         Text::MissingToolDamaged => "The installation is incomplete. Reinstall Video All-in-One.",
         Text::UpdateNotSetUp => "Updates are not set up in this build.",
         Text::UpdateErrorFileTitle => "The last update did not finish",
+        Text::StartupErrorTitle => "Video All-in-One cannot open your data",
+        Text::StartupNewerData => "Your data was created by a newer version of Video All-in-One. Install the newest version to open it.",
+        Text::StartupUnknownDatabase => "The data file in the data folder is not from Video All-in-One. Nothing was changed.",
+        Text::StartupOther => "Video All-in-One could not open its data. Your videos and files were not changed.",
+        Text::StartupDataFolder => "Data folder: {0}",
     }
 }

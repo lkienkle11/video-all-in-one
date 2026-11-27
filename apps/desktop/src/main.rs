@@ -13,6 +13,7 @@ use vaio_core::{
     services::job_scheduler::{JobScheduler, Limits},
 };
 use vaio_desktop::app::AppView;
+use vaio_desktop::startup_error::{self, StartupFailure};
 use vaio_desktop::state::{AppState, ToolSearch};
 use vaio_desktop::update_wiring::UpdateSetup;
 use vaio_desktop::window_options::main_window_options;
@@ -28,18 +29,21 @@ fn main() {
     if let Some(code) = vaio_platform::update::handle_apply_update(std::env::args_os().skip(1)) {
         std::process::exit(code);
     }
+    let channel = Channel::current();
     let runtime = match Runtime::new() {
         Ok(runtime) => runtime,
         Err(error) => {
-            eprintln!("Failed to start application runtime: {error}");
+            let message = format!("Failed to start application runtime: {error}");
+            eprintln!("{message}");
+            startup_error::show(StartupFailure::other(None, message), channel);
             return;
         }
     };
-    let channel = Channel::current();
     let state = match initialize(&runtime, channel) {
         Ok(state) => state,
-        Err(error) => {
-            eprintln!("Failed to open application data: {error}");
+        Err(failure) => {
+            eprintln!("Failed to open application data: {}", failure.message());
+            startup_error::show(failure, channel);
             return;
         }
     };
@@ -77,16 +81,18 @@ fn main() {
     drop(runtime);
 }
 
-fn initialize(runtime: &Runtime, channel: Channel) -> Result<AppState, String> {
+fn initialize(runtime: &Runtime, channel: Channel) -> Result<AppState, StartupFailure> {
     let base = vaio_desktop::app::data_base()
-        .ok_or_else(|| "no absolute application data directory".to_owned())?;
+        .ok_or_else(|| StartupFailure::other(None, "no absolute application data directory"))?;
+    let directory = data_dir(channel, &base);
     runtime.block_on(async {
         let (store, tools) = tokio::task::spawn_blocking(move || {
-            let directory = data_dir(channel, &base);
-            std::fs::create_dir_all(&directory).map_err(|error| error.to_string())?;
-            let store: Arc<dyn JobStore> = Arc::new(SqliteJobStore::new(
-                Database::open(&directory.join("jobs.db")).map_err(|error| error.to_string())?,
-            ));
+            std::fs::create_dir_all(&directory).map_err(|error| {
+                StartupFailure::other(Some(directory.clone()), error.to_string())
+            })?;
+            let database = Database::open(&directory.join("jobs.db"))
+                .map_err(|error| StartupFailure::database(directory.clone(), error))?;
+            let store: Arc<dyn JobStore> = Arc::new(SqliteJobStore::new(database));
             // An empty executable is deliberately unusable. Missing tools must not block the shell.
             // The folder the user chose last time is searched before the PATH.
             let tool_dir = SettingsStore::load(&directory).tool_dir;
@@ -105,10 +111,10 @@ fn initialize(runtime: &Runtime, channel: Channel) -> Result<AppState, String> {
             };
             let ffmpeg = find(Tool::Ffmpeg);
             let ffprobe = find(Tool::Ffprobe);
-            Ok::<_, String>((store, ToolPathsCell::new(FfmpegPaths { ffmpeg, ffprobe })))
+            Ok::<_, StartupFailure>((store, ToolPathsCell::new(FfmpegPaths { ffmpeg, ffprobe })))
         })
         .await
-        .map_err(|error| error.to_string())??;
+        .map_err(|error| StartupFailure::other(None, error.to_string()))??;
         let (sender, receiver) = mpsc::unbounded_channel();
         let runner = Arc::new(FfmpegExportRunner::with_shared_tools(
             store.clone(),
@@ -123,10 +129,11 @@ fn initialize(runtime: &Runtime, channel: Channel) -> Result<AppState, String> {
         if let Err(error) = scheduler.recover().await {
             eprintln!("Could not recover all jobs: {error}");
         }
+        let list_folder = data_dir(channel, &base);
         let jobs = tokio::task::spawn_blocking(move || store.list())
             .await
-            .map_err(|error| error.to_string())?
-            .map_err(|error| error.to_string())?;
+            .map_err(|error| StartupFailure::other(None, error.to_string()))?
+            .map_err(|error| StartupFailure::other(Some(list_folder), error.to_string()))?;
         let mut state = AppState::new(runtime.handle().clone(), None, receiver)
             .with_scheduler(scheduler)
             .with_tool_search(tools, ToolSearch::from_env());
