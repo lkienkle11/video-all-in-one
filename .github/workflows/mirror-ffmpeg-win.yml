@@ -4,8 +4,16 @@
 # pinned value, and it never overwrites an existing release.
 name: Mirror FFmpeg for Windows
 
+# It also runs when this file is pushed to a fix/** branch, because a workflow that only has
+# workflow_dispatch cannot be started from a branch that is not the default branch yet. Running
+# twice is harmless: an existing release is never overwritten.
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - "fix/**"
+    paths:
+      - ".github/workflows/mirror-ffmpeg-win.yml"
 
 permissions:
   contents: write
