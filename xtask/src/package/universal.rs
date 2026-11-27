@@ -32,6 +32,12 @@ fn classify(path: &str, arm: &[u8], intel: &[u8]) -> Result<Action> {
     bail!("{path} differs between the two apps and is not a program: it cannot be joined")
 }
 
+/// The seal of the first signing. It differs between the two apps and the joined app is signed
+/// again, so it is dropped.
+fn is_signature(path: &str) -> bool {
+    path.split('/').any(|part| part == "_CodeSignature")
+}
+
 const MINIMUM_KEY: &str = "<key>LSMinimumSystemVersion</key>\n\t<string>";
 
 fn version_parts(text: &str) -> Vec<u32> {
@@ -124,6 +130,9 @@ fn join_apps(arm: &Path, intel: &Path, dest: &Path) -> Result<()> {
 
 fn join_file(arm: &Path, intel: &Path, dest: &Path, path: &Path) -> Result<()> {
     let name = path.display().to_string();
+    if is_signature(&name) {
+        return std::fs::remove_file(dest.join(path)).map_err(Into::into);
+    }
     let other = intel.join(path);
     if !other.is_file() {
         bail!("{name} is in the Apple silicon app but not in the Intel app");
@@ -246,6 +255,12 @@ mod tests {
             merge_plist(&plist("10.9"), &plist("10.15")).unwrap(),
             plist("10.15")
         );
+    }
+
+    #[test]
+    fn the_old_signatures_are_dropped_because_the_app_is_signed_again() {
+        assert!(is_signature("Contents/_CodeSignature/CodeResources"));
+        assert!(!is_signature("Contents/Resources/CodeResources.txt"));
     }
 
     #[test]
