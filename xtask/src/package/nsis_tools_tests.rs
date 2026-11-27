@@ -37,7 +37,7 @@ fn words(line: &str) -> Vec<String> {
     let (mut out, mut current, mut quote) = (Vec::new(), String::new(), None::<char>);
     for c in line.chars() {
         match quote {
-            Some(q) if c == q => quote = Some(q).filter(|_| false),
+            Some(q) if c == q => quote = None,
             Some(_) => current.push(c),
             None if c == '"' || c == '\'' || c == '`' => quote = Some(c),
             None if c.is_whitespace() => {
