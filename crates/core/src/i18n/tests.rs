@@ -211,6 +211,11 @@ fn index(t: Text) -> usize {
         Text::MissingToolDamaged => 100,
         Text::UpdateNotSetUp => 101,
         Text::UpdateErrorFileTitle => 102,
+        Text::StartupErrorTitle => 103,
+        Text::StartupNewerData => 104,
+        Text::StartupUnknownDatabase => 105,
+        Text::StartupOther => 106,
+        Text::StartupDataFolder => 107,
     }
 }
 
@@ -224,7 +229,7 @@ fn text_all_lists_every_variant_in_enum_order() {
         );
     }
     // The last variant has the highest index.
-    let highest = index(Text::UpdateErrorFileTitle);
+    let highest = index(Text::StartupDataFolder);
     assert_eq!(
         Text::ALL.len(),
         highest + 1,
@@ -274,5 +279,26 @@ fn language_roundtrips_through_code() {
     assert_eq!(Language::from_code(""), None);
     for language in [Language::English, Language::Vietnamese] {
         assert_eq!(Language::from_code(language.code()), Some(language));
+    }
+}
+
+#[test]
+fn every_startup_text_exists_in_both_languages() {
+    for text in [
+        Text::StartupErrorTitle,
+        Text::StartupNewerData,
+        Text::StartupUnknownDatabase,
+        Text::StartupOther,
+        Text::StartupDataFolder,
+    ] {
+        assert!(Text::ALL.contains(&text), "{text:?} is not in Text::ALL");
+        assert!(
+            !tr(Language::English, text).is_empty(),
+            "{text:?} has no English text"
+        );
+        assert!(
+            !tr(Language::Vietnamese, text).is_empty(),
+            "{text:?} has no Vietnamese text"
+        );
     }
 }
