@@ -7936,7 +7936,7 @@ dependencies = [
 
 [[package]]
 name = "vaio-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "base64 0.23.1",
  "proptest",
@@ -7949,7 +7949,7 @@ dependencies = [
 
 [[package]]
 name = "vaio-desktop"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "gpui-kit",
  "tokio",
@@ -7963,7 +7963,7 @@ dependencies = [
 
 [[package]]
 name = "vaio-media"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "libc",
  "libmpv2",
@@ -7977,7 +7977,7 @@ dependencies = [
 
 [[package]]
 name = "vaio-platform"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "base64 0.23.1",
  "ed25519-dalek",
@@ -7991,7 +7991,7 @@ dependencies = [
 
 [[package]]
 name = "vaio-storage"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "rusqlite",
  "vaio-core",
@@ -9265,7 +9265,7 @@ checksum = "ec7a2a501ed189703dba8b08142f057e887dfc4b2cc4db2d343ac6376ba3e0b9"
 
 [[package]]
 name = "xtask"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "base64 0.23.1",
