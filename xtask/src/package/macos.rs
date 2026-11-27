@@ -336,7 +336,7 @@ fn adhoc_sign(path: &Path) -> Result<()> {
 }
 
 /// A disk image with the app and a shortcut to /Applications.
-fn make_dmg(channel: Channel, app: &Path, stage: &Path, dmg: &Path) -> Result<()> {
+pub(super) fn make_dmg(channel: Channel, app: &Path, stage: &Path, dmg: &Path) -> Result<()> {
     let folder: PathBuf = stage.join("dmg");
     fs::create_dir_all(&folder)?;
     let copy = folder.join(format!("{}.app", channel.app_name()));

@@ -456,9 +456,80 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  # One disk image for macOS that runs on Apple silicon and Intel: the two per-CPU disk images are
+  # joined file by file (lipo). The update zips stay per CPU; the app updates itself from them.
+  macos-universal:
+    name: universal macOS disk image
+    needs: build
+    if: ${{ !cancelled() && needs.build.result == 'success' }}
+    runs-on: macos-15
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install the pinned Rust toolchain
+        run: rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal --no-self-update
+
+      - name: Download the two macOS packages
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: package-macos-*
+          merge-multiple: true
+          path: dist
+
+      - name: Join them (production and development)
+        run: |
+          set -eu
+          for channel in production dev; do
+            if [ "$channel" = dev ]; then
+              arm=$(ls dist/video-all-in-one-*-dev-macos-aarch64.dmg)
+              suffix="-dev-macos-aarch64.dmg"
+            else
+              arm=$(ls dist/video-all-in-one-*-macos-aarch64.dmg | grep -v -- '-dev-')
+              suffix="-macos-aarch64.dmg"
+            fi
+            intel="${arm%aarch64.dmg}x86_64.dmg"
+            version="${arm#dist/video-all-in-one-}"
+            version="${version%"$suffix"}"
+            test -f "$arm"
+            test -f "$intel"
+            cargo xtask universal --arm-dmg "$arm" --intel-dmg "$intel" --out dist \
+              --version "$version" --channel "$channel"
+          done
+
+      - name: Check that both CPUs are in the app and in the bundled tools
+        run: |
+          set -eu
+          for app in dist/stage-macos-universal/*.app dist/stage-macos-universal-dev/*.app; do
+            test -d "$app"
+            for file in "$app"/Contents/MacOS/* "$app"/Contents/Resources/bin/*; do
+              archs=$(lipo -archs "$file")
+              case "$archs" in
+                *arm64*x86_64*|*x86_64*arm64*) ;;
+                *) echo "::error::$file has only: $archs"; exit 1 ;;
+              esac
+            done
+            codesign --verify --deep --strict "$app"
+          done
+          ls dist/video-all-in-one-*-macos-universal.dmg
+
+      - name: Keep the universal disk images
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: package-macos-universal
+          path: dist/video-all-in-one-*-macos-universal.dmg
+          if-no-files-found: error
+          retention-days: 7
+
   publish:
     name: sign and publish
-    needs: [verify, build]
+    needs: [verify, build, macos-universal]
     if: github.ref_type == 'tag'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -538,6 +609,7 @@ jobs:
           for file in dist/video-all-in-one-*; do
             case "$file" in
               *-dev-*) ;;
+              *-macos-aarch64.dmg | *-macos-x86_64.dmg) ;;
               *) files+=("$file") ;;
             esac
           done
@@ -559,10 +631,13 @@ jobs:
           files=()
           for file in dist/video-all-in-one-*-dev-*; do
             test -f "$file"
-            files+=("$file")
+            case "$file" in
+              *-macos-aarch64.dmg | *-macos-x86_64.dmg) ;;
+              *) files+=("$file") ;;
+            esac
           done
-          # One installer per OS: macOS Apple Silicon, macOS Intel, Windows and Ubuntu.
-          test "${#files[@]}" -eq 4
+          # One installer per OS: the universal macOS disk image, Windows and Ubuntu.
+          test "${#files[@]}" -eq 3
           gh release create "dev-v${VERSION}" "${files[@]}" \
             --target "$GITHUB_SHA" --prerelease --latest=false \
             --title "Video All-in-One ${VERSION} (development build)" \

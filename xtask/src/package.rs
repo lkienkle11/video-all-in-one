@@ -11,6 +11,7 @@ mod nsis;
 pub(crate) mod pe;
 #[cfg(test)]
 mod tests;
+pub mod universal;
 
 use crate::release::changelog::{read_notes, Notes};
 use crate::release::latest_json::{FILE_PREFIX, PLATFORMS};

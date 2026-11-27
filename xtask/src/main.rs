@@ -64,6 +64,19 @@ enum Command {
         #[command(subcommand)]
         command: libmpv::Command,
     },
+    /// macOS: joins the Apple silicon and the Intel disk image into one universal disk image.
+    Universal {
+        #[arg(long)]
+        arm_dmg: PathBuf,
+        #[arg(long)]
+        intel_dmg: PathBuf,
+        #[arg(long)]
+        out: PathBuf,
+        #[arg(long)]
+        version: String,
+        #[arg(long, value_enum, default_value = "production")]
+        channel: package::BuildChannel,
+    },
     /// Builds the installer and the update artifact of one OS from a built production binary.
     Package {
         #[arg(long, value_enum)]
@@ -125,6 +138,13 @@ fn main() -> Result<()> {
         Command::LangShare { min } => lang_share::run(&root, min),
         Command::SetVersion { version } => set_version::set_version(&root, &version),
         Command::CheckRelease { tag, latest } => check_release::check_release(&root, &tag, &latest),
+        Command::Universal {
+            arm_dmg,
+            intel_dmg,
+            out,
+            version,
+            channel,
+        } => package::universal::run(&arm_dmg, &intel_dmg, &out, &version, channel),
         Command::Package {
             target,
             version,
