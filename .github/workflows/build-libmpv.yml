@@ -183,11 +183,13 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -eu
+          # The tag points at the default branch: GITHUB_TOKEN may not create a tag for a commit that
+          # changes workflow files (HTTP 403), and the tag is only a label for the release.
           tag="libmpv-${LIBMPV_RECIPE}"
           if gh release view "$tag" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
             echo "release $tag exists"
           else
-            gh release create "$tag" --repo "$GITHUB_REPOSITORY" --prerelease --target "$GITHUB_SHA" \
+            gh release create "$tag" --repo "$GITHUB_REPOSITORY" --prerelease --target "$(gh api "repos/$GITHUB_REPOSITORY" --jq .default_branch)" \
               --title "libmpv build recipe ${LIBMPV_RECIPE}" \
               --notes "LGPL libmpv and FFmpeg libraries built by .github/workflows/build-libmpv.yml. Not an app release: the app downloads these in CI. Licences and source URLs are inside each archive (LICENSES/)."
           fi
