@@ -108,7 +108,19 @@ Release packages bundle only LGPL builds of libmpv and FFmpeg. Homebrew's builds
 - Pinned hash: `ci.yml` and `release.yml` have `LIBMPV_SHA256_LINUX_X86_64`, `LIBMPV_SHA256_MACOS_ARM64` and `LIBMPV_SHA256_MACOS_X86_64` at the top. They say `PENDING-first-build` until the first build is published, and the download step fails with a clear message while they do. After the first build, copy each printed SHA-256 into both files. The step downloads the archive, compares the SHA-256 and only then unpacks it to `$RUNNER_TEMP/libmpv`, and sets `PKG_CONFIG_PATH`, `LIBRARY_PATH` and `RUSTFLAGS` (`-L native=DIR/lib` and a run path to it) for the build and the tests.
 - Rebuild or update: change the row of the component in `sources.rs` (new URL, new SHA-256 taken from the upstream release and checked by comparing with a second download), raise `RECIPE_VERSION` and `LIBMPV_RECIPE`, run the workflow, pin the new hashes.
 - macOS packager: `--libmpv-dir DIR` bundles the libraries of `DIR/lib` and nothing from Homebrew, and puts `DIR/LICENSES` into `Contents/Resources/third-party`. Without it the packager refuses, unless `--allow-gpl-for-local-testing` is given (the old Homebrew path, local tests only).
-- Ubuntu packager: `--libmpv-dir DIR` is required. The libraries go to `/usr/lib/video-all-in-one/`, the licence texts to `/usr/share/doc/video-all-in-one/third-party/`. The executable finds them through the run path `$ORIGIN/../lib/video-all-in-one`, which `release.yml` sets at build time through `RUSTFLAGS` (`-C link-arg=-Wl,-rpath,$ORIGIN/../lib/video-all-in-one`); the packager refuses an executable without it. `Depends:` is derived at packaging time from `readelf -d` of the executable and of every bundled library (`xtask/src/package/elf.rs` maps each soname to its Ubuntu package and fails on a soname it does not know); `libc6 (>= 2.35)` is the floor, so one package runs on 22.04 and 24.04. `Recommends: ffmpeg` stays.
+- Ubuntu packager: `--libmpv-dir DIR` is required. The libraries go to `/usr/lib/video-all-in-one/`, the licence texts to `/usr/share/doc/video-all-in-one/third-party/`. The executable finds them through the run path `$ORIGIN/../lib/video-all-in-one`, which `release.yml` sets at build time through `RUSTFLAGS` (`-C link-arg=-Wl,-rpath,$ORIGIN/../lib/video-all-in-one`); the packager refuses an executable without it. `Depends:` is derived at packaging time from `readelf -d` of the executable and of every bundled library (`xtask/src/package/elf.rs` maps each soname to its Ubuntu package and fails on a soname it does not know); `libc6 (>= 2.35)` is the floor, so one package runs on 22.04 and 24.04.
+
+## Bundled FFmpeg and FFprobe
+
+The macOS and Ubuntu packages include FFmpeg and FFprobe from the same LGPL build as libmpv. They are installed in `Contents/Resources/bin` inside the macOS app and `/usr/lib/video-all-in-one/bin` on Ubuntu. The Windows installer is intended to install them in `<install folder>\bin`.
+
+The libmpv recipe version is 2. Before a build can use these archives, the three archive hashes must be copied from the Build libmpv workflow into `LIBMPV_SHA256_LINUX_X86_64`, `LIBMPV_SHA256_MACOS_ARM64` and `LIBMPV_SHA256_MACOS_X86_64` in both `ci.yml` and `release.yml`. Those values are currently `PENDING-first-build`, so the workflows stop before building until the first archives are published and pinned.
+
+The package licence scan refuses FFmpeg builds configured with `--enable-gpl`, `--enable-nonfree` or `--enable-libx264`.
+
+Precise cut chooses an H.264 encoder offered by FFmpeg in this order: `libopenh264`, then `libx264`, then `h264_mf` on Windows, then `h264_videotoolbox` on macOS.
+
+**NOT YET DONE:** Windows FFmpeg and FFprobe must come from the pinned LGPL build and be copied into a release of this repository before Windows packages can use them; see the Windows FFmpeg research note. The universal macOS DMG is also not yet done; the current packages have separate Apple silicon and Intel DMGs.
 
 ## App icons
 
@@ -147,7 +159,7 @@ If the app cannot install an update itself, it downloads and verifies the file a
 | libmpv for Windows | `MPV_WIN_URL` and `MPV_WIN_SHA256` in both workflow files; LGPL build of `zhongfly/mpv-winbuild` | Pick a newer release, copy the SHA-256 shown on its page, change both values in both files |
 | libmpv and FFmpeg libraries for macOS and Ubuntu | Our own LGPL build: sources pinned in `xtask/src/libmpv/sources.rs`, archives pinned by `LIBMPV_SHA256_*` in both workflow files | See "Our own libmpv" |
 | `ffmpeg` command in CI tests | Homebrew and apt, not pinned. A test tool only, never shipped | Whatever the runner installs |
-| FFmpeg, FFprobe, yt-dlp | Not bundled yet. They come from the `PATH` (sprint 4 bundles and pins them with checksums and licence notices) | |
+| `yt-dlp` | Not bundled; it comes from the `PATH` | |
 
 ## Licences
 
